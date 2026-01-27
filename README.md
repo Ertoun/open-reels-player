@@ -1,4 +1,5 @@
-# open-reels-player
+# 📺 Open-Reels Player
+
 Un lecteur vidéo minimaliste et Open Source conçu pour visionner des contenus publics (Reels, etc.) sans les distractions des réseaux sociaux.
 
 ## ✨ Philosophie
@@ -15,3 +16,45 @@ Ce logiciel est fourni "en l'état", à des fins éducatives et de démonstratio
 2. **Usage** : L'utilisateur est responsable de l'usage qu'il fait de cet outil. Nous encourageons vivement les utilisateurs à visiter les liens originaux pour soutenir les créateurs.
 3. **Conditions des plateformes** : Ce projet n'est pas affilié, associé, autorisé ou approuvé par Meta, Instagram ou toute autre plateforme mentionnée.
 
+## ⚖️ Avis Juridique
+**LIMITATION DE RESPONSABILITÉ :** L'auteur de ce logiciel ne pourra être tenu responsable de toute utilisation non conforme aux Conditions Générales d'Utilisation des plateformes tierces. Ce projet utilise des techniques d'affichage standard (framing/embedding) pour les contenus rendus publics par leurs auteurs originaux. 
+
+Si vous êtes un ayant-droit et souhaitez qu'un contenu spécifique ne soit plus accessible via cet outil, veuillez noter qu'**aucune donnée n'est hébergée sur ce serveur** ; les demandes de suppression doivent être adressées à la plateforme source où le contenu est initialement stocké.
+
+## 📄 Licence
+Ce projet est sous licence **MIT**. Consultez le fichier [LICENSE](LICENSE) pour plus de détails.
+
+## 🤝 Contribution
+S'agissant d'un projet Open Source, les contributions sont les bienvenues ! N'hésitez pas à ouvrir une "issue" ou à soumettre une "pull request" si vous souhaitez améliorer le lecteur ou signaler un bug.
+
+---
+
+### EN
+# 📺 Open-Reels Player
+
+A minimalist, Open Source video player designed to view public content (Reels, etc.) without the distractions, tracking, or forced logins of social media platforms.
+
+## ✨ Philosophy
+This project aims to provide a content-centered viewing experience. No intrusive algorithms, no tracking, and no account required—all while respecting the work of the original creators by providing direct attribution and links.
+
+## 🚀 Features
+- **Curated Playlists**: Manually managed lists of high-quality public content.
+- **Privacy-Focused**: No data storage, no third-party cookies, and no user tracking.
+- **Direct Support**: A dedicated button allows users to jump to the original app to like, comment, or follow the creator directly.
+- **Lightweight UI**: A clean interface focused purely on the video.
+
+## 🛠 Technical Stack
+- **Frontend**: [e.g., React / Next.js]
+- **Streaming Proxy**: Node.js / Express (to handle CORS and Referrer headers).
+- **Extraction**: Powered by Open Source tools to resolve public URLs.
+
+## ⚖️ Legal Disclaimer
+**LIMITATION OF LIABILITY:** The author of this software shall not be held responsible for any use that does not comply with the Terms of Service of third-party platforms. This project utilizes standard display techniques (framing/embedding) for content made public by their original creators. 
+
+If you are a copyright holder and wish for specific content to no longer be accessible via this tool, please note that **no data is hosted on this server**; removal requests must be directed to the source platform where the content is originally stored.
+
+## 📄 License
+This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for details.
+
+## 🤝 Contributing
+As this is an Open Source project, contributions are welcome! Feel free to open an issue or submit a pull request if you want to improve the player or report a bug.
