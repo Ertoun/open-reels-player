@@ -19,7 +19,8 @@ app.use(
 const getDirectUrl = (instagramUrl) => {
   return new Promise((resolve, reject) => {
     // -g: get-url, --f: format (mp4)
-    const process = spawn("yt-dlp", ["--get-url", instagramUrl]);
+    const embedUrl = instagramUrl.replace("/reel/", "/reels/embed/");
+    const process = spawn("/usr/local/bin/yt-dlp", ["--no-check-certificate", "--get-url", embedUrl]);
     let output = "";
     let errorOutput = "";
 
