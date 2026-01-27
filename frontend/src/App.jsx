@@ -2,7 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { Play, ExternalLink, Loader2, Info, Plus, Library, User, Heart, Bookmark, Trash2, Edit3, X } from 'lucide-react';
 import initialPlaylists from './playlists.json';
 
-const API_BASE_URL = 'https://open-reels-player.onrender.com';
+const API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  ? 'http://localhost:10000'
+  : 'https://open-reels-player.onrender.com';
 
 function App() {
   const [currentVideo, setCurrentVideo] = useState(null);
