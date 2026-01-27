@@ -23,6 +23,14 @@ const getDirectUrl = (instagramUrl) => {
     let output = "";
     let errorOutput = "";
 
+    process.on('error', (err) => {
+        if (err.code === 'ENOENT') {
+            reject(new Error('yt-dlp not found. Please install it on your system.'));
+        } else {
+            reject(err);
+        }
+    });
+
     process.stdout.on("data", (data) => {
       output += data.toString();
     });
