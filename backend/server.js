@@ -5,7 +5,7 @@ const { spawn } = require("child_process");
 const axios = require("axios");
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 10000;
 
 // Middlewares
 app.use(cors());
@@ -19,7 +19,7 @@ app.use(
 const getDirectUrl = (instagramUrl) => {
   return new Promise((resolve, reject) => {
     // -g: get-url, --f: format (mp4)
-    const process = spawn("yt-dlp", ["-g", "-f", "mp4", instagramUrl]);
+    const process = spawn("yt-dlp", ["--get-url", instagramUrl]);
     let output = "";
     let errorOutput = "";
 

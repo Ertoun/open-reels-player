@@ -20,4 +20,4 @@ COPY . .
 EXPOSE 10000
 
 # Lance l'application
-CMD [ "node", "index.js" ]
+CMD [ "node", "server.js" ]
