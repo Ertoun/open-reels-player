@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "base": "./",
+  "homepage": "https://ertoun.github.io/open-reels-player",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
