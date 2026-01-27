@@ -18,19 +18,18 @@ app.use(
 // Function to get the direct MP4 URL using yt-dlp
 const getDirectUrl = (instagramUrl) => {
   return new Promise((resolve, reject) => {
-    // -g: get-url, --f: format (mp4)
-    const embedUrl = instagramUrl.replace("/reel/", "/reels/embed/");
-    const process = spawn("/usr/local/bin/yt-dlp", ["--no-check-certificate", "--get-url", embedUrl]);
+    // On retire le .replace("/reel/", "/reels/embed/") pour ce test
+    // On utilise un User-Agent de Chrome Windows classique
+    const process = spawn("/usr/local/bin/yt-dlp", [
+      "--no-check-certificate",
+      "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "--get-url",
+      "--no-playlist",
+      instagramUrl
+    ]);
+
     let output = "";
     let errorOutput = "";
-
-    process.on('error', (err) => {
-        if (err.code === 'ENOENT') {
-            reject(new Error('yt-dlp not found. Please install it on your system.'));
-        } else {
-            reject(err);
-        }
-    });
 
     process.stdout.on("data", (data) => {
       output += data.toString();
@@ -41,10 +40,10 @@ const getDirectUrl = (instagramUrl) => {
     });
 
     process.on("close", (code) => {
-      if (code === 0) {
+      if (code === 0 && output.trim()) {
         resolve(output.trim());
       } else {
-        reject(new Error(`yt-dlp failed with code ${code}: ${errorOutput}`));
+        reject(new Error(`yt-dlp failed: ${errorOutput || 'No URL found'}`));
       }
     });
   });
