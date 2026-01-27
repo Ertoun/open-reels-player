@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Play, ExternalLink, Loader2, Info, Plus, Library, User, Heart, Bookmark, Trash2, Edit3, X } from 'lucide-react';
 import initialPlaylists from './playlists.json';
 
@@ -14,6 +14,9 @@ function App() {
   
   // State for tabs
   const [activeTab, setActiveTab] = useState('library'); // 'library', 'favorites', 'my-reels', 'add'
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showPlayer, setShowPlayer] = useState(true);
+  const videoRef = useRef(null);
   
   // State for playlists and favorites
   const [customReels, setCustomReels] = useState(() => {
@@ -27,9 +30,10 @@ function App() {
   });
 
   // State for Add/Edit form
-  const [formFields, setFormFields] = useState({ title: '', url: '', thumbnail: '' });
+  const [formFields, setFormFields] = useState({ title: '', url: '', thumbnail: '', tags: '' });
   const [formError, setFormError] = useState('');
   const [editingId, setEditingId] = useState(null);
+  const [showFooter, setShowFooter] = useState(false);
 
   // Persist data
   useEffect(() => {
@@ -41,6 +45,15 @@ function App() {
   }, [favorites]);
 
   const handleVideoSelect = async (video) => {
+    if (currentVideo?.id === video.id) {
+      if (videoRef.current) {
+        if (videoRef.current.paused) videoRef.current.play();
+        else videoRef.current.pause();
+      }
+      setShowPlayer(true); // Ensure player is shown
+      return;
+    }
+
     setCurrentVideo(video);
     setLoading(true);
     setError('');
@@ -49,6 +62,7 @@ function App() {
     try {
       const proxyUrl = `${API_BASE_URL}/api/stream?url=${encodeURIComponent(video.url)}`;
       setStreamUrl(proxyUrl);
+      setShowPlayer(true); // Always show player when a new video is selected
     } catch (err) {
       setError('Impossible de charger la vidéo.');
       console.error(err);
@@ -84,12 +98,12 @@ function App() {
       // Update existing reel
       setCustomReels(prev => prev.map(reel => 
         reel.id === editingId 
-          ? { ...reel, title: formFields.title, url: formFields.url, thumbnail: formFields.thumbnail || reel.thumbnail }
+          ? { ...reel, title: formFields.title, url: formFields.url, thumbnail: formFields.thumbnail || reel.thumbnail, tags: formFields.tags }
           : reel
       ));
       // Update current video if it was the one edited
       if (currentVideo?.id === editingId) {
-        setCurrentVideo(prev => ({ ...prev, title: formFields.title, url: formFields.url, thumbnail: formFields.thumbnail || prev.thumbnail }));
+        setCurrentVideo(prev => ({ ...prev, title: formFields.title, url: formFields.url, thumbnail: formFields.thumbnail || prev.thumbnail, tags: formFields.tags }));
       }
       setEditingId(null);
     } else {
@@ -99,6 +113,7 @@ function App() {
         title: formFields.title,
         url: formFields.url,
         thumbnail: formFields.thumbnail || 'https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?w=500&q=80',
+        tags: formFields.tags,
         isCustom: true
       };
       setCustomReels(prev => [newReel, ...prev]);
@@ -111,13 +126,13 @@ function App() {
   const startEdit = (e, video) => {
     e.stopPropagation();
     setEditingId(video.id);
-    setFormFields({ title: video.title, url: video.url, thumbnail: video.thumbnail });
+    setFormFields({ title: video.title, url: video.url, thumbnail: video.thumbnail, tags: video.tags || '' });
     setActiveTab('add');
   };
 
   const cancelEdit = () => {
     setEditingId(null);
-    setFormFields({ title: '', url: '', thumbnail: '' });
+    setFormFields({ title: '', url: '', thumbnail: '', tags: '' });
     setActiveTab('my-reels');
   };
 
@@ -145,29 +160,84 @@ function App() {
         return initialPlaylists;
     }
   };
+  
+  const getFilteredAndSearchedList = () => {
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      const allReels = [...initialPlaylists, ...customReels];
+      return allReels.filter(v => 
+        v.title.toLowerCase().includes(q) || 
+        (v.tags && v.tags.toLowerCase().includes(q)) ||
+        (q === 'reel') ||
+        (q === 'custom' && v.isCustom)
+      );
+    }
+    return getFilteredPlaylists();
+  };
 
-  const displayList = getFilteredPlaylists();
+  const displayList = getFilteredAndSearchedList();
 
   return (
     <div className="min-h-screen bg-[#0f0f0f] text-white flex flex-col font-sans">
       {/* Header */}
-      <header className="p-4 md:p-6 border-b border-gray-800 flex justify-between items-center bg-black/40 backdrop-blur-md sticky top-0 z-50">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 bg-red-600 rounded-xl shadow-lg shadow-red-600/10">
-            <Play className="w-5 h-5 text-white fill-white" />
+      <header className="p-3 md:p-6 border-b border-gray-800 flex justify-between items-center bg-black/40 backdrop-blur-md sticky top-0 z-50">
+        <div className="flex items-center gap-2 md:gap-3">
+          <div className="p-1.5 md:p-2.5 bg-red-600 rounded-lg md:rounded-xl shadow-lg shadow-red-600/10">
+            <Play className="w-4 h-4 md:w-5 md:h-5 text-white fill-white" />
           </div>
-          <h1 className="text-xl md:text-2xl font-black text-white tracking-tighter">
+          <h1 className="text-lg md:text-2xl font-black text-white tracking-tighter">
             OPEN<span className="text-red-600">REELS</span>
           </h1>
         </div>
-        <div className="hidden md:block text-xs font-medium text-gray-500 bg-gray-900/50 px-3 py-1.5 rounded-full border border-gray-800">
-          PROXIED INSTAGRAM PLAYER
+        <div className="flex items-center gap-2">
+          {currentVideo && (
+            <button 
+              onClick={() => {
+                if (showPlayer && videoRef.current) videoRef.current.pause();
+                setShowPlayer(!showPlayer);
+              }}
+              className={`flex items-center gap-1.5 md:gap-2 px-2 md:px-3 py-1.5 md:py-2.5 rounded-lg md:rounded-xl transition-all border ${showPlayer ? 'bg-red-500/10 border-red-500/20 text-red-500' : 'bg-white/10 border-white/10 text-white'}`}
+              title={showPlayer ? "Hide Player" : "Show Player"}
+            >
+              <Play className={`w-4 h-4 md:w-5 md:h-5 ${showPlayer ? 'opacity-50' : ''}`} />
+              <span className="text-[10px] md:text-xs font-bold uppercase tracking-wider">Toggle</span>
+            </button>
+          )}
+          <button 
+            onClick={() => setShowFooter(!showFooter)}
+            className={`p-2 md:p-2.5 rounded-xl transition-all ${showFooter ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-white'}`}
+            title="Toggle Information"
+          >
+            <Info className="w-4.5 h-4.5 md:w-5 md:h-5" />
+          </button>
         </div>
       </header>
 
-      <main className="flex-1 flex flex-col md:flex-row gap-0 md:gap-8 p-0 md:p-8 overflow-hidden h-[calc(100vh-140px)]">
+      <main className="flex-1 flex flex-col md:flex-row gap-0 md:gap-8 p-0 md:p-8 md:overflow-hidden min-h-[calc(100dvh-140px)]">
         {/* Playlists Sidebar */}
-        <div className="w-full md:w-[380px] flex flex-col bg-[#141414] md:rounded-3xl border-b md:border border-gray-800 overflow-hidden shadow-2xl">
+        <div className="w-full md:w-[380px] h-[35dvh] md:h-auto flex flex-col bg-[#141414] md:rounded-3xl border-b md:border border-gray-800 overflow-hidden shadow-2xl">
+          {/* Search Bar */}
+          <div className="p-3 border-b border-gray-800 bg-black/10">
+            <div className="relative group">
+              <Info className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 group-focus-within:text-red-500 transition-colors" />
+              <input 
+                type="text" 
+                placeholder="Search by title or theme..." 
+                className="w-full bg-[#1a1a1a] border border-gray-800 rounded-xl py-2 pl-9 pr-10 text-xs focus:outline-none focus:border-red-500/50 transition-all font-medium"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              {searchQuery && (
+                <button 
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          </div>
+          
           {/* Tabs Navigation */}
           <div className="flex border-b border-gray-800 p-2 gap-1 bg-black/20">
             {[
@@ -182,14 +252,14 @@ function App() {
                   setActiveTab(tab.id);
                   if (tab.id !== 'add') setEditingId(null);
                 }}
-                className={`flex-1 flex flex-col items-center justify-center py-2.5 rounded-xl transition-all duration-300 ${
+                className={`flex-1 flex flex-col items-center justify-center py-1.5 md:py-2.5 rounded-lg md:rounded-xl transition-all duration-300 ${
                   activeTab === tab.id 
                     ? 'bg-white/10 text-white shadow-inner' 
                     : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'
                 }`}
               >
-                <tab.icon className={`w-5 h-5 mb-1 ${activeTab === tab.id ? 'text-red-600' : ''}`} />
-                <span className="text-[10px] uppercase font-bold tracking-wider">{tab.label}</span>
+                <tab.icon className={`w-4 h-4 md:w-5 md:h-5 mb-0.5 md:mb-1 ${activeTab === tab.id ? 'text-red-600' : ''}`} />
+                <span className="text-[8px] md:text-[10px] uppercase font-bold tracking-tight md:tracking-wider">{tab.label}</span>
               </button>
             ))}
           </div>
@@ -245,6 +315,16 @@ function App() {
                       onChange={(e) => setFormFields({...formFields, thumbnail: e.target.value})}
                     />
                   </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest pl-1">Themes / Chips (e.g. funny, sports)</label>
+                    <input 
+                      type="text" 
+                      placeholder="funny, nature, volleyball..."
+                      className="w-full bg-[#1a1a1a] border border-gray-800 rounded-xl p-3 text-sm focus:outline-none focus:border-red-500/50 focus:ring-1 focus:ring-red-500/50 transition-all"
+                      value={formFields.tags}
+                      onChange={(e) => setFormFields({...formFields, tags: e.target.value})}
+                    />
+                  </div>
                   
                   {formError && <p className="text-xs text-red-500 pl-1">{formError}</p>}
                   
@@ -279,13 +359,13 @@ function App() {
                     <button
                       key={video.id}
                       onClick={() => handleVideoSelect(video)}
-                      className={`w-full text-left p-2.5 rounded-2xl transition-all duration-300 flex gap-4 group relative border ${
+                      className={`w-full text-left p-2 rounded-xl transition-all duration-300 flex gap-3 group relative border ${
                         currentVideo?.id === video.id 
                         ? 'bg-white/5 border-white/10 ring-1 ring-white/5' 
                         : 'bg-transparent border-transparent hover:bg-white/[0.03]'
                       }`}
                     >
-                      <div className="relative w-20 h-28 rounded-xl overflow-hidden flex-shrink-0 bg-gray-900 shadow-lg">
+                      <div className="relative w-14 h-20 rounded-lg overflow-hidden flex-shrink-0 bg-gray-900 shadow-lg">
                         <img 
                           src={video.thumbnail} 
                           alt={video.title} 
@@ -296,52 +376,62 @@ function App() {
                         <div className={`absolute inset-0 flex items-center justify-center transition-opacity duration-300 ${
                           currentVideo?.id === video.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
                         }`}>
-                          <div className="p-2 bg-white/20 backdrop-blur-md rounded-full border border-white/30">
-                            <Play className="w-4 h-4 text-white fill-white" />
+                          <div className="p-1.5 bg-white/20 backdrop-blur-md rounded-full border border-white/30">
+                            <Play className="w-3 h-3 text-white fill-white" />
                           </div>
                         </div>
                       </div>
-                      <div className="flex flex-col justify-center flex-1 pr-6">
-                        <h4 className={`font-semibold text-sm line-clamp-2 transition-colors ${
+                      <div className="flex flex-col flex-1 pr-14 min-w-0">
+                        <h4 className={`font-bold text-[13px] line-clamp-1 transition-colors leading-tight mb-1.5 ${
                           currentVideo?.id === video.id ? 'text-white' : 'text-gray-400 group-hover:text-gray-200'
                         }`}>
                           {video.title}
                         </h4>
-                        <div className="flex items-center gap-2 mt-2">
-                          <span className="text-[10px] font-bold bg-white/5 px-2 py-0.5 rounded-full border border-white/10 text-gray-400">
-                             REEL
-                           </span>
+                        <div className="flex flex-wrap gap-1.5">
+                          <span className="text-[9px] font-black bg-white/5 px-1.5 py-0.5 rounded-md border border-white/10 text-gray-500 uppercase tracking-tighter">
+                            REEL
+                          </span>
                           {video.isCustom && (
-                            <span className="text-[10px] font-bold bg-red-500/10 px-2 py-0.5 rounded-full border border-red-500/20 text-red-600">
+                            <span className="text-[9px] font-black bg-red-500/10 px-1.5 py-0.5 rounded-md border border-red-500/20 text-red-600 uppercase tracking-tighter">
                               CUSTOM
                             </span>
                           )}
+                          {(video.tags || "").split(',')
+                            .map(t => t.trim())
+                            .filter(Boolean)
+                            .slice(0, 5)
+                            .map(tag => (
+                              <span key={tag} className="text-[9px] font-semibold bg-white/10 px-1.5 py-0.5 rounded-md border border-white/5 text-gray-400 truncate max-w-[70px]">
+                                {tag}
+                              </span>
+                            ))
+                          }
                         </div>
                       </div>
 
                       {/* Floating Actions */}
-                      <div className="absolute top-2 right-2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="absolute top-2 right-3 flex flex-col gap-1.5 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity z-10">
                         <button 
                           onClick={(e) => toggleFavorite(e, video.id)}
-                          className={`p-2 rounded-full transition-all ${
-                            isFavorite(video.id) ? 'text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.5)]' : 'text-gray-500 hover:text-white bg-black/40 backdrop-blur-md'
+                          className={`p-1.5 rounded-full transition-all shadow-sm ${
+                            isFavorite(video.id) ? 'text-red-500 bg-white/10 border border-white/10' : 'text-gray-500 hover:text-white bg-black/40 backdrop-blur-md border border-white/5'
                           }`}
                         >
-                          <Heart className="w-4 h-4" fill={isFavorite(video.id) ? "currentColor" : "none"} />
+                          <Heart className="w-3.5 h-3.5" fill={isFavorite(video.id) ? "currentColor" : "none"} />
                         </button>
                         {video.isCustom && (
                           <>
                             <button 
                               onClick={(e) => startEdit(e, video)}
-                              className="p-2 rounded-full text-gray-500 hover:text-blue-400 bg-black/40 backdrop-blur-md transition-all"
+                              className="p-1.5 rounded-full text-gray-500 hover:text-blue-400 bg-black/40 backdrop-blur-md border border-white/5 transition-all shadow-sm"
                             >
-                              <Edit3 className="w-4 h-4" />
+                              <Edit3 className="w-3.5 h-3.5" />
                             </button>
                             <button 
                               onClick={(e) => deleteCustomReel(e, video.id)}
-                              className="p-2 rounded-full text-gray-500 hover:text-red-400 bg-black/40 backdrop-blur-md transition-all"
+                              className="p-1.5 rounded-full text-gray-500 hover:text-red-400 bg-black/40 backdrop-blur-md border border-white/5 transition-all shadow-sm"
                             >
-                              <Trash2 className="w-4 h-4" />
+                              <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           </>
                         )}
@@ -355,7 +445,7 @@ function App() {
         </div>
 
         {/* Player View */}
-        <div className="flex-1 flex flex-col items-center justify-center bg-[#0a0a0a] md:rounded-[2.5rem] relative max-h-full md:max-h-[85vh] max-w-full md:max-w-lg mx-auto md:border border-gray-800/50 overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.5)] md:translate-y-[-2vh]">
+        <div className={`flex-1 flex flex-col items-center justify-center bg-[#0a0a0a] md:rounded-[2.5rem] relative max-h-full md:max-h-[85vh] w-[min(92vw,450px)] md:w-full mx-auto my-8 md:my-0 md:border border-gray-800/50 overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.5)] md:translate-y-[-2vh] rounded-[2rem] transition-all duration-500 ${!showPlayer ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-100 scale-100'}`}>
           {!currentVideo ? (
             <div className="text-gray-500 text-center space-y-6 p-12">
               <div className="relative mx-auto w-24 h-24 flex items-center justify-center">
@@ -401,15 +491,22 @@ function App() {
                 </div>
               )}
 
-              {streamUrl && (
+              {streamUrl && showPlayer && (
                 <video
+                  ref={videoRef}
                   key={streamUrl}
                   src={streamUrl}
                   controls
                   autoPlay
-                  className="w-full h-full object-contain transition-all duration-700"
+                  className="w-full h-full object-contain transition-all duration-700 cursor-pointer"
                   onCanPlay={onPlayerLoaded}
                   onError={onPlayerError}
+                  onClick={(e) => {
+                    if (videoRef.current) {
+                      if (videoRef.current.paused) videoRef.current.play();
+                      else videoRef.current.pause();
+                    }
+                  }}
                 />
               )}
 
@@ -439,11 +536,20 @@ function App() {
               </div>
             </>
           )}
+          {!showPlayer && currentVideo && (
+            <button 
+              onClick={() => setShowPlayer(true)}
+              className="absolute bottom-8 left-1/2 -translate-x-1/2 bg-white text-black px-6 py-3 rounded-full font-bold shadow-2xl active:scale-95 transition-all flex items-center gap-2"
+            >
+              <Play className="w-4 h-4" />
+              Show Player
+            </button>
+          )}
         </div>
       </main>
 
       {/* Legal Banner */}
-      <footer className="p-6 md:px-12 bg-[#0a0a0a] border-t border-gray-900 z-40">
+      <footer className={`p-6 md:px-12 bg-[#0a0a0a] border-t border-gray-900 z-40 ${!showFooter ? 'hidden md:block' : 'block'}`}>
         <div className="flex flex-col md:flex-row items-center gap-6 max-w-7xl mx-auto">
           <div className="p-3 bg-gray-900 rounded-2xl border border-gray-800">
              <Info className="w-5 h-5 text-gray-500" />
