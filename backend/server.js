@@ -1,7 +1,5 @@
 const express = require("express");
 const cors = require("cors");
-const helmet = require("helmet");
-const { spawn } = require("child_process");
 const axios = require("axios");
 
 const app = express();
@@ -9,113 +7,74 @@ const PORT = process.env.PORT || 10000;
 
 // Middlewares
 app.use(cors());
-app.use(
-  helmet({
-    crossOriginResourcePolicy: false,
-  }),
-);
-
-// Function to get the direct MP4 URL using yt-dlp
-const getDirectUrl = (instagramUrl) => {
-  return new Promise((resolve, reject) => {
-    // On retire le .replace("/reel/", "/reels/embed/") pour ce test
-    // On utilise un User-Agent de Chrome Windows classique
-    const process = spawn("/usr/local/bin/yt-dlp", [
-      "--no-check-certificate",
-      "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      "--get-url",
-      "--no-playlist",
-      instagramUrl
-    ]);
-
-    let output = "";
-    let errorOutput = "";
-
-    process.stdout.on("data", (data) => {
-      output += data.toString();
-    });
-
-    process.stderr.on("data", (data) => {
-      errorOutput += data.toString();
-    });
-
-    process.on("close", (code) => {
-      if (code === 0 && output.trim()) {
-        resolve(output.trim());
-      } else {
-        reject(new Error(`yt-dlp failed: ${errorOutput || 'No URL found'}`));
-      }
-    });
-  });
-};
 
 app.get("/api/stream", async (req, res) => {
   const videoUrl = req.query.url;
 
   if (!videoUrl) {
-    return res.status(400).json({ error: "URL parameter is required" });
+    return res.status(400).json({ error: "URL manquante" });
   }
 
   try {
-    console.log(`Extracting URL for: ${videoUrl}`);
-    const directUrl = await getDirectUrl(videoUrl);
-    console.log(`Direct URL found: ${directUrl.substring(0, 50)}...`);
-
-    // Prepare headers for the request to Instagram content servers
-    const headers = {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-      Referer: "https://www.instagram.com/",
+    console.log(`Fetching direct URL for: ${videoUrl}`);
+    
+    // 1. Appeler l'API de RapidAPI pour obtenir le lien .mp4 réel
+    const options = {
+      method: 'GET',
+      url: 'https://instagram-reels-downloader-api.p.rapidapi.com/get_reel_download_url',
+      params: { url: videoUrl },
+      headers: {
+        'X-RapidAPI-Key': process.env.RAPIDAPI_KEY, 
+        'X-RapidAPI-Host': 'instagram-reels-downloader-api.p.rapidapi.com'
+      }
     };
 
-    // Handle Range header from client for seeking
-    if (req.headers.range) {
-      headers["Range"] = req.headers.range;
+    const apiResponse = await axios.request(options);
+    
+    // L'API renvoie généralement un objet avec l'URL de téléchargement
+    const directMp4Url = apiResponse.data.download_url || apiResponse.data.url;
+
+    if (!directMp4Url) {
+      console.error("API Response:", apiResponse.data);
+      throw new Error("Lien MP4 non trouvé dans la réponse de l'API");
     }
 
-    // Fetch the video stream
-    const response = await axios({
-      method: "get",
-      url: directUrl,
-      responseType: "stream",
-      headers: headers,
-    });
+    console.log(`Direct URL found, proxying stream...`);
 
-    // Forward status and headers (especially Content-Range and Content-Length)
-    res.status(response.status);
-    Object.keys(response.headers).forEach((key) => {
-      // Filter out some headers that might interfere
-      if (
-        [
-          "content-type",
-          "content-length",
-          "content-range",
-          "accept-ranges",
-        ].includes(key.toLowerCase())
-      ) {
-        res.setHeader(key, response.headers[key]);
+    // 2. Proxy de stream pour bypass les CORS et servir le contenu proprement
+    const videoStream = await axios({
+      method: 'get',
+      url: directMp4Url,
+      responseType: 'stream',
+      headers: { 
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://www.instagram.com/'
       }
     });
 
-    // Ensure content-type is video/mp4 if not set
-    if (!res.getHeader("content-type")) {
-      res.setHeader("content-type", "video/mp4");
+    res.setHeader('Content-Type', 'video/mp4');
+    
+    // Forward essential headers
+    if (videoStream.headers['content-length']) {
+      res.setHeader('content-length', videoStream.headers['content-length']);
     }
 
-    // Pipe the stream to the response
-    response.data.pipe(res);
+    videoStream.data.pipe(res);
+
   } catch (error) {
-    console.error("Error streaming video:", error.message);
-    res
-      .status(500)
-      .json({ error: "Failed to stream video", details: error.message });
+    console.error("Erreur API:", error.message);
+    res.status(500).json({ 
+      error: "Impossible de récupérer le Reel", 
+      details: error.message,
+      message: "Vérifie ta clé RapidAPI et tes crédits restants."
+    });
   }
 });
 
 app.get("/health", (req, res) => {
-  res.json({ status: "ok" });
+  res.json({ status: "ok", provider: "rapidapi" });
 });
 
 app.listen(PORT, () => {
-  console.log(`Backend running on port ${PORT}`);
+  console.log(`Serveur via RapidAPI sur le port ${PORT}`);
 });
