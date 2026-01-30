@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, ExternalLink, Loader2, Info, Plus, Library, User, Heart, Bookmark, Trash2, Edit3, X } from 'lucide-react';
+import { Play, ExternalLink, Loader2, Info, Plus, Library, User, Heart, Bookmark, Trash2, Edit3, X, Download } from 'lucide-react';
 import initialPlaylists from './playlists.json';
 
 const API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
@@ -13,7 +13,7 @@ function App() {
   const [error, setError] = useState('');
   
   // State for tabs
-  const [activeTab, setActiveTab] = useState('library'); // 'library', 'favorites', 'my-reels', 'add'
+  const [activeTab, setActiveTab] = useState('library'); // 'library', 'favorites', 'personal', 'add'
   const [searchQuery, setSearchQuery] = useState('');
   const [showPlayer, setShowPlayer] = useState(true);
   const videoRef = useRef(null);
@@ -30,7 +30,7 @@ function App() {
   });
 
   // State for Add/Edit form
-  const [formFields, setFormFields] = useState({ title: '', url: '', thumbnail: '', tags: '' });
+  const [formFields, setFormFields] = useState({ title: '', url: '', tags: '' });
   const [formError, setFormError] = useState('');
   const [editingId, setEditingId] = useState(null);
   const [showFooter, setShowFooter] = useState(false);
@@ -89,8 +89,8 @@ function App() {
       return;
     }
 
-    if (!formFields.url.includes('instagram.com/')) {
-      setFormError('L\'URL doit être un lien Instagram valide.');
+    if (!formFields.url.startsWith('http')) {
+      setFormError('L\'URL doit être un lien valide (http/https).');
       return;
     }
 
@@ -98,12 +98,12 @@ function App() {
       // Update existing reel
       setCustomReels(prev => prev.map(reel => 
         reel.id === editingId 
-          ? { ...reel, title: formFields.title, url: formFields.url, thumbnail: formFields.thumbnail || reel.thumbnail, tags: formFields.tags }
+          ? { ...reel, title: formFields.title, url: formFields.url, tags: formFields.tags }
           : reel
       ));
       // Update current video if it was the one edited
       if (currentVideo?.id === editingId) {
-        setCurrentVideo(prev => ({ ...prev, title: formFields.title, url: formFields.url, thumbnail: formFields.thumbnail || prev.thumbnail, tags: formFields.tags }));
+        setCurrentVideo(prev => ({ ...prev, title: formFields.title, url: formFields.url, tags: formFields.tags }));
       }
       setEditingId(null);
     } else {
@@ -112,28 +112,27 @@ function App() {
         id: `custom-${Date.now()}`,
         title: formFields.title,
         url: formFields.url,
-        thumbnail: formFields.thumbnail || 'https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?w=500&q=80',
         tags: formFields.tags,
         isCustom: true
       };
       setCustomReels(prev => [newReel, ...prev]);
     }
 
-    setFormFields({ title: '', url: '', thumbnail: '' });
-    setActiveTab('my-reels');
+    setFormFields({ title: '', url: '', tags: '' });
+    setActiveTab('personal');
   };
 
   const startEdit = (e, video) => {
     e.stopPropagation();
     setEditingId(video.id);
-    setFormFields({ title: video.title, url: video.url, thumbnail: video.thumbnail, tags: video.tags || '' });
+    setFormFields({ title: video.title, url: video.url, tags: video.tags || '' });
     setActiveTab('add');
   };
 
   const cancelEdit = () => {
     setEditingId(null);
-    setFormFields({ title: '', url: '', thumbnail: '', tags: '' });
-    setActiveTab('my-reels');
+    setFormFields({ title: '', url: '', tags: '' });
+    setActiveTab('personal');
   };
 
   const deleteCustomReel = (e, videoId) => {
@@ -142,40 +141,143 @@ function App() {
     if (currentVideo?.id === videoId) setCurrentVideo(null);
   };
 
+  const exportPlaylist = (type) => {
+    let data = [];
+    let filename = 'playlist.json';
+    
+    if (type === 'favorites') {
+      const allReels = [...initialPlaylists, ...customReels];
+      data = allReels.filter(v => favorites.includes(v.id));
+      filename = 'favorites.json';
+    } else if (type === 'personal') {
+      data = customReels;
+      filename = 'personal.json';
+    }
+    
+    if (data.length === 0) return;
+    
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   const onPlayerLoaded = () => setLoading(false);
   const onPlayerError = () => {
     setLoading(false);
     setError('Erreur de lecture. Le lien est peut-être expiré.');
   };
-
   const getFilteredPlaylists = () => {
     switch (activeTab) {
       case 'favorites':
         const allReels = [...initialPlaylists, ...customReels];
         return allReels.filter(v => favorites.includes(v.id));
-      case 'my-reels':
+      case 'personal':
         return customReels;
       case 'library':
       default:
         return initialPlaylists;
     }
   };
-  
+
   const getFilteredAndSearchedList = () => {
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      const allReels = [...initialPlaylists, ...customReels];
-      return allReels.filter(v => 
+      
+      const personalMatches = customReels.filter(v => 
         v.title.toLowerCase().includes(q) || 
         (v.tags && v.tags.toLowerCase().includes(q)) ||
-        (q === 'reel') ||
-        (q === 'custom' && v.isCustom)
+        (q === 'volleyball' || q === 'volley') ||
+        (q === 'youtube' && (v.url.includes('youtube.com') || v.url.includes('youtu.be')))
       );
+
+      const libraryMatches = initialPlaylists.filter(v => {
+        if (personalMatches.some(p => p.url === v.url)) return false;
+        
+        return v.title.toLowerCase().includes(q) || 
+          (v.tags && v.tags.toLowerCase().includes(q)) ||
+          (q === 'volleyball' || q === 'volley') ||
+          (q === 'youtube' && (v.url.includes('youtube.com') || v.url.includes('youtu.be')))
+      });
+
+      return { personal: personalMatches, library: libraryMatches, isSearch: true };
     }
-    return getFilteredPlaylists();
+    return { data: getFilteredPlaylists(), isSearch: false };
   };
 
   const displayList = getFilteredAndSearchedList();
+
+  const renderVideoItem = (video) => (
+    <button
+      key={video.id}
+      onClick={() => handleVideoSelect(video)}
+      className={`w-full text-left p-2 rounded-xl transition-all duration-300 flex gap-3 group relative border ${
+        currentVideo?.id === video.id 
+        ? 'bg-white/5 border-white/10 ring-1 ring-white/5' 
+        : 'bg-transparent border-transparent hover:bg-white/[0.03]'
+      }`}
+    >
+      <div className="flex flex-col flex-1 pr-14 min-w-0">
+        <h4 className={`font-bold text-[13px] line-clamp-1 transition-colors leading-tight mb-1.5 ${
+          currentVideo?.id === video.id ? 'text-white' : 'text-gray-400 group-hover:text-gray-200'
+        }`}>
+          {video.title}
+        </h4>
+        <div className="flex flex-wrap gap-1.5">
+          <span className="text-[9px] font-black bg-white/5 px-1.5 py-0.5 rounded-md border border-white/10 text-gray-500 uppercase tracking-tighter">
+            {video.url.includes('youtube.com') || video.url.includes('youtu.be') ? 'YOUTUBE' : 'CLIP'}
+          </span>
+          {video.isCustom && (
+            <span className="text-[9px] font-black bg-red-500/10 px-1.5 py-0.5 rounded-md border border-red-500/20 text-red-600 uppercase tracking-tighter">
+              CUSTOM
+            </span>
+          )}
+          {(video.tags || "").split(',')
+            .map(t => t.trim())
+            .filter(Boolean)
+            .slice(0, 5)
+            .map(tag => (
+              <span key={tag} className="text-[9px] font-semibold bg-white/10 px-1.5 py-0.5 rounded-md border border-white/5 text-gray-400 truncate max-w-[70px]">
+                {tag}
+              </span>
+            ))
+          }
+        </div>
+      </div>
+
+      <div className="absolute top-2 right-3 flex flex-row gap-1.5 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity z-10">
+        <button 
+          onClick={(e) => toggleFavorite(e, video.id)}
+          className={`p-1.5 rounded-full transition-all shadow-sm ${
+            isFavorite(video.id) ? 'text-red-500 bg-white/10 border border-white/10' : 'text-gray-500 hover:text-white bg-black/40 backdrop-blur-md border border-white/5'
+          }`}
+        >
+          <Heart className="w-3.5 h-3.5" fill={isFavorite(video.id) ? "currentColor" : "none"} />
+        </button>
+        {video.isCustom && (
+          <>
+            <button 
+              onClick={(e) => startEdit(e, video)}
+              className="p-1.5 rounded-full text-gray-500 hover:text-blue-400 bg-black/40 backdrop-blur-md border border-white/5 transition-all shadow-sm"
+            >
+              <Edit3 className="w-3.5 h-3.5" />
+            </button>
+            <button 
+              onClick={(e) => deleteCustomReel(e, video.id)}
+              className="p-1.5 rounded-full text-gray-500 hover:text-red-400 bg-black/40 backdrop-blur-md border border-white/5 transition-all shadow-sm"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </>
+        )}
+      </div>
+    </button>
+  );
 
   return (
     <div className="min-h-screen bg-[#0f0f0f] text-white flex flex-col font-sans">
@@ -213,239 +315,9 @@ function App() {
         </div>
       </header>
 
-      <main className="flex-1 flex flex-col md:flex-row gap-0 md:gap-8 p-0 md:p-8 md:overflow-hidden min-h-[calc(100dvh-140px)]">
-        {/* Playlists Sidebar */}
-        <div className="w-full md:w-[380px] h-[35dvh] md:h-auto flex flex-col bg-[#141414] md:rounded-3xl border-b md:border border-gray-800 overflow-hidden shadow-2xl">
-          {/* Search Bar */}
-          <div className="p-3 border-b border-gray-800 bg-black/10">
-            <div className="relative group">
-              <Info className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 group-focus-within:text-red-500 transition-colors" />
-              <input 
-                type="text" 
-                placeholder="Search by title or theme..." 
-                className="w-full bg-[#1a1a1a] border border-gray-800 rounded-xl py-2 pl-9 pr-10 text-xs focus:outline-none focus:border-red-500/50 transition-all font-medium"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-              {searchQuery && (
-                <button 
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-          </div>
-          
-          {/* Tabs Navigation */}
-          <div className="flex border-b border-gray-800 p-2 gap-1 bg-black/20">
-            {[
-              { id: 'library', icon: Library, label: 'Library' },
-              { id: 'favorites', icon: Heart, label: 'Favs' },
-              { id: 'my-reels', icon: User, label: 'Mine' },
-              { id: 'add', icon: editingId ? Edit3 : Plus, label: editingId ? 'Edit' : 'Add' },
-            ].map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => {
-                  setActiveTab(tab.id);
-                  if (tab.id !== 'add') setEditingId(null);
-                }}
-                className={`flex-1 flex flex-col items-center justify-center py-1.5 md:py-2.5 rounded-lg md:rounded-xl transition-all duration-300 ${
-                  activeTab === tab.id 
-                    ? 'bg-white/10 text-white shadow-inner' 
-                    : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'
-                }`}
-              >
-                <tab.icon className={`w-4 h-4 md:w-5 md:h-5 mb-0.5 md:mb-1 ${activeTab === tab.id ? 'text-red-600' : ''}`} />
-                <span className="text-[8px] md:text-[10px] uppercase font-bold tracking-tight md:tracking-wider">{tab.label}</span>
-              </button>
-            ))}
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
-            {activeTab === 'add' ? (
-              <div className="space-y-6 py-2">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h3 className="text-lg font-bold mb-1">{editingId ? 'Edit Reel' : 'Add New Reel'}</h3>
-                    <p className="text-xs text-gray-500">
-                      {editingId ? 'Update your reel details below.' : 'Paste an Instagram link to add it to your collection.'}
-                    </p>
-                  </div>
-                  {editingId && (
-                    <button 
-                      onClick={cancelEdit}
-                      className="p-1.5 hover:bg-white/10 rounded-lg transition-colors text-gray-400"
-                    >
-                      <X className="w-5 h-5" />
-                    </button>
-                  )}
-                </div>
-                
-                <form onSubmit={handleFormSubmit} className="space-y-4">
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest pl-1">Title</label>
-                    <input 
-                      type="text" 
-                      placeholder="My favorite reel..."
-                      className="w-full bg-[#1a1a1a] border border-gray-800 rounded-xl p-3 text-sm focus:outline-none focus:border-red-500/50 focus:ring-1 focus:ring-red-500/50 transition-all"
-                      value={formFields.title}
-                      onChange={(e) => setFormFields({...formFields, title: e.target.value})}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest pl-1">Instagram URL</label>
-                    <input 
-                      type="text" 
-                      placeholder="https://www.instagram.com/reel/..."
-                      className="w-full bg-[#1a1a1a] border border-gray-800 rounded-xl p-3 text-sm focus:outline-none focus:border-red-500/50 focus:ring-1 focus:ring-red-500/50 transition-all"
-                      value={formFields.url}
-                      onChange={(e) => setFormFields({...formFields, url: e.target.value})}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest pl-1">Thumbnail URL (Optional)</label>
-                    <input 
-                      type="text" 
-                      placeholder="https://images.unsplash.com/..."
-                      className="w-full bg-[#1a1a1a] border border-gray-800 rounded-xl p-3 text-sm focus:outline-none focus:border-red-500/50 focus:ring-1 focus:ring-red-500/50 transition-all"
-                      value={formFields.thumbnail}
-                      onChange={(e) => setFormFields({...formFields, thumbnail: e.target.value})}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest pl-1">Themes / Chips (e.g. funny, sports)</label>
-                    <input 
-                      type="text" 
-                      placeholder="funny, nature, volleyball..."
-                      className="w-full bg-[#1a1a1a] border border-gray-800 rounded-xl p-3 text-sm focus:outline-none focus:border-red-500/50 focus:ring-1 focus:ring-red-500/50 transition-all"
-                      value={formFields.tags}
-                      onChange={(e) => setFormFields({...formFields, tags: e.target.value})}
-                    />
-                  </div>
-                  
-                  {formError && <p className="text-xs text-red-500 pl-1">{formError}</p>}
-                  
-                  <div className="flex gap-3 pt-2">
-                    {editingId && (
-                      <button 
-                        type="button"
-                        onClick={cancelEdit}
-                        className="flex-1 bg-gray-800 hover:bg-gray-700 p-3 rounded-xl font-bold text-sm transition-all"
-                      >
-                        Cancel
-                      </button>
-                    )}
-                    <button 
-                      type="submit"
-                      className="flex-[2] bg-white text-black hover:bg-gray-200 p-3 rounded-xl font-bold text-sm shadow-lg active:scale-95 transition-transform"
-                    >
-                      {editingId ? 'Save Changes' : 'Add to Collection'}
-                    </button>
-                  </div>
-                </form>
-              </div>
-            ) : (
-              <>
-                {displayList.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-full text-center p-8 space-y-4 opacity-40">
-                    <Bookmark className="w-12 h-12" />
-                    <p className="text-sm">No reels here yet.</p>
-                  </div>
-                ) : (
-                  displayList.map((video) => (
-                    <button
-                      key={video.id}
-                      onClick={() => handleVideoSelect(video)}
-                      className={`w-full text-left p-2 rounded-xl transition-all duration-300 flex gap-3 group relative border ${
-                        currentVideo?.id === video.id 
-                        ? 'bg-white/5 border-white/10 ring-1 ring-white/5' 
-                        : 'bg-transparent border-transparent hover:bg-white/[0.03]'
-                      }`}
-                    >
-                      <div className="relative w-14 h-20 rounded-lg overflow-hidden flex-shrink-0 bg-gray-900 shadow-lg">
-                        <img 
-                          src={video.thumbnail} 
-                          alt={video.title} 
-                          className={`w-full h-full object-cover transition-all duration-500 ${
-                            currentVideo?.id === video.id ? 'scale-110 opacity-100' : 'opacity-40 group-hover:opacity-80'
-                          }`}
-                        />
-                        <div className={`absolute inset-0 flex items-center justify-center transition-opacity duration-300 ${
-                          currentVideo?.id === video.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-                        }`}>
-                          <div className="p-1.5 bg-white/20 backdrop-blur-md rounded-full border border-white/30">
-                            <Play className="w-3 h-3 text-white fill-white" />
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex flex-col flex-1 pr-14 min-w-0">
-                        <h4 className={`font-bold text-[13px] line-clamp-1 transition-colors leading-tight mb-1.5 ${
-                          currentVideo?.id === video.id ? 'text-white' : 'text-gray-400 group-hover:text-gray-200'
-                        }`}>
-                          {video.title}
-                        </h4>
-                        <div className="flex flex-wrap gap-1.5">
-                          <span className="text-[9px] font-black bg-white/5 px-1.5 py-0.5 rounded-md border border-white/10 text-gray-500 uppercase tracking-tighter">
-                            REEL
-                          </span>
-                          {video.isCustom && (
-                            <span className="text-[9px] font-black bg-red-500/10 px-1.5 py-0.5 rounded-md border border-red-500/20 text-red-600 uppercase tracking-tighter">
-                              CUSTOM
-                            </span>
-                          )}
-                          {(video.tags || "").split(',')
-                            .map(t => t.trim())
-                            .filter(Boolean)
-                            .slice(0, 5)
-                            .map(tag => (
-                              <span key={tag} className="text-[9px] font-semibold bg-white/10 px-1.5 py-0.5 rounded-md border border-white/5 text-gray-400 truncate max-w-[70px]">
-                                {tag}
-                              </span>
-                            ))
-                          }
-                        </div>
-                      </div>
-
-                      {/* Floating Actions */}
-                      <div className="absolute top-2 right-3 flex flex-col gap-1.5 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                        <button 
-                          onClick={(e) => toggleFavorite(e, video.id)}
-                          className={`p-1.5 rounded-full transition-all shadow-sm ${
-                            isFavorite(video.id) ? 'text-red-500 bg-white/10 border border-white/10' : 'text-gray-500 hover:text-white bg-black/40 backdrop-blur-md border border-white/5'
-                          }`}
-                        >
-                          <Heart className="w-3.5 h-3.5" fill={isFavorite(video.id) ? "currentColor" : "none"} />
-                        </button>
-                        {video.isCustom && (
-                          <>
-                            <button 
-                              onClick={(e) => startEdit(e, video)}
-                              className="p-1.5 rounded-full text-gray-500 hover:text-blue-400 bg-black/40 backdrop-blur-md border border-white/5 transition-all shadow-sm"
-                            >
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
-                            <button 
-                              onClick={(e) => deleteCustomReel(e, video.id)}
-                              className="p-1.5 rounded-full text-gray-500 hover:text-red-400 bg-black/40 backdrop-blur-md border border-white/5 transition-all shadow-sm"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </button>
-                  ))
-                )}
-              </>
-            )}
-          </div>
-        </div>
-
+      <main className="flex-1 flex flex-col md:flex-row gap-0 md:gap-8 p-0 md:p-8 md:overflow-hidden min-h-screen md:min-h-[calc(100dvh-140px)]">
         {/* Player View */}
-        <div className={`flex-1 flex flex-col items-center justify-center bg-[#0a0a0a] md:rounded-[2.5rem] relative max-h-full md:max-h-[85vh] w-[min(92vw,450px)] md:w-full mx-auto my-8 md:my-0 md:border border-gray-800/50 overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.5)] md:translate-y-[-2vh] rounded-[2rem] transition-all duration-500 ${!showPlayer ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-100 scale-100'}`}>
+        <div className={`flex-1 flex flex-col items-center justify-center bg-[#0a0a0a] md:rounded-[2.5rem] relative max-h-full md:max-h-[85vh] w-[min(92vw,450px)] md:w-full mx-auto my-8 md:my-0 md:border border-gray-800/50 overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.5)] rounded-[2rem] transition-all duration-500 ${!showPlayer ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-100 scale-100'}`}>
           {!currentVideo ? (
             <div className="text-gray-500 text-center space-y-6 p-12">
               <div className="relative mx-auto w-24 h-24 flex items-center justify-center">
@@ -468,7 +340,7 @@ function App() {
                   <div className="mt-8 text-center space-y-2">
                     <p className="text-lg font-bold tracking-tight">ENCRYPTED STREAM</p>
                     <p className="text-xs text-gray-500 italic px-8 max-w-[280px]">
-                      Fetching direct video buffer from Instagram servers via yt-dlp...
+                      Please wait... Fetching direct video buffer from source via yt-dlp...
                     </p>
                   </div>
                 </div>
@@ -501,12 +373,6 @@ function App() {
                   className="w-full h-full object-contain transition-all duration-700 cursor-pointer"
                   onCanPlay={onPlayerLoaded}
                   onError={onPlayerError}
-                  onClick={(e) => {
-                    if (videoRef.current) {
-                      if (videoRef.current.paused) videoRef.current.play();
-                      else videoRef.current.pause();
-                    }
-                  }}
                 />
               )}
 
@@ -545,6 +411,219 @@ function App() {
               Show Player
             </button>
           )}
+        </div>
+        {/* --- PLAYLISTS SIDEBAR CONTAINER --- */}
+        <div className="w-full md:w-[380px] h-auto flex flex-col bg-[#141414] md:rounded-3xl border-b md:border border-gray-800 overflow-hidden md:max-h-[85vh] shadow-2xl">
+          
+          {/* SEARCH SECTION */}
+          <div className="p-3 border-b border-gray-800 bg-black/10 space-y-3">
+            <div className="relative group">
+              <Info className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 group-focus-within:text-red-500 transition-colors" />
+              <input 
+                type="text" 
+                placeholder="Search by title or theme..." 
+                className="w-full bg-[#1a1a1a] border border-gray-800 rounded-xl py-2 pl-9 pr-10 text-xs focus:outline-none focus:border-red-500/50 transition-all font-medium"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              {searchQuery && (
+                <button 
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            {/* Tag Cloud */}
+            <div className="flex flex-wrap gap-1.5 px-0.5">
+              {['volley', 'exo', 'cat', 'autre'].map(tag => (
+                <button
+                  key={tag}
+                  onClick={() => setSearchQuery(tag)}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all border ${
+                    searchQuery === tag 
+                      ? 'bg-red-500/10 border-red-500/50 text-red-500' 
+                      : 'bg-white/5 border-white/5 text-gray-500 hover:text-gray-300 hover:bg-white/10'
+                  }`}
+                >
+                  {tag}
+                </button>
+              ))}
+            </div>
+          </div>
+          
+          {/* TABS NAVIGATION (Library, Favorites, Personal, Add) */}
+          <div className="flex border-b border-gray-800 p-1 gap-1 bg-black/20">
+            {[
+              { id: 'library', icon: Library, label: 'Library' },
+              { id: 'favorites', icon: Heart, label: 'Favorites' },
+              { id: 'personal', icon: User, label: 'Personal' },
+              { id: 'add', icon: editingId ? Edit3 : Plus, label: editingId ? 'Edit' : 'Add' },
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setActiveTab(tab.id);
+                  if (tab.id !== 'add') setEditingId(null);
+                }}
+                className={`flex-1 flex flex-col items-center justify-center md:py-2.5 rounded-lg md:rounded-xl transition-all duration-300 ${
+                  activeTab === tab.id 
+                    ? 'bg-white/10 text-white shadow-inner' 
+                    : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'
+                }`}
+              >
+                <tab.icon className={`w-4 h-4 md:w-5 md:h-5 mb-0.5 md:mb-1 ${activeTab === tab.id ? 'text-red-600' : ''}`} />
+                <span className="text-[8px] md:text-[10px] uppercase font-bold tracking-tight md:tracking-wider">{tab.label}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* MAIN CONTENT AREA (Form or Video List) */}
+          <div className="flex-1 max-h-[60vh] md:max-h-[71vh] overflow-y-auto p-4 space-y-3 custom-scrollbar">
+            
+            {/* ADD / EDIT VIDEO FORM SECTION */}
+            {activeTab === 'add' ? (
+              <div className="space-y-6 py-2">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h3 className="text-lg font-bold mb-1">{editingId ? 'Edit Video' : 'Add New Video'}</h3>
+                    <p className="text-xs text-gray-500">
+                      {editingId ? 'Update your video details below.' : 'Paste a YouTube or Instagram link to add it to your collection.'}
+                    </p>
+                  </div>
+                  {editingId && (
+                    <button 
+                      onClick={cancelEdit}
+                      className="p-1.5 hover:bg-white/10 rounded-lg transition-colors text-gray-400"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  )}
+                </div>
+                
+                <form onSubmit={handleFormSubmit} className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest pl-1">Title</label>
+                    <input 
+                      type="text" 
+                      placeholder="My favorite reel..."
+                      className="w-full bg-[#1a1a1a] border border-gray-800 rounded-xl p-3 text-sm focus:outline-none focus:border-red-500/50 focus:ring-1 focus:ring-red-500/50 transition-all"
+                      value={formFields.title}
+                      onChange={(e) => setFormFields({...formFields, title: e.target.value})}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest pl-1">Video URL (YT, IG, etc.)</label>
+                    <input 
+                      type="text" 
+                      placeholder="https://www.youtube.com/watch?v=... ou Instagram"
+                      className="w-full bg-[#1a1a1a] border border-gray-800 rounded-xl p-3 text-sm focus:outline-none focus:border-red-500/50 focus:ring-1 focus:ring-red-500/50 transition-all"
+                      value={formFields.url}
+                      onChange={(e) => setFormFields({...formFields, url: e.target.value})}
+                    />
+                    <p className="text-[10px] text-gray-600 px-1">
+                      Supports: YouTube, Instagram, Twitter/X, Facebook, and more via yt-dlp.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest pl-1">Themes / Chips (e.g. funny, sports)</label>
+                    <input 
+                      type="text" 
+                      placeholder="funny, nature, volleyball..."
+                      className="w-full bg-[#1a1a1a] border border-gray-800 rounded-xl p-3 text-sm focus:outline-none focus:border-red-500/50 focus:ring-1 focus:ring-red-500/50 transition-all"
+                      value={formFields.tags}
+                      onChange={(e) => setFormFields({...formFields, tags: e.target.value})}
+                    />
+                  </div>
+                  
+                  {formError && <p className="text-xs text-red-500 pl-1">{formError}</p>}
+                  
+                  <div className="flex gap-3 pt-2">
+                    {editingId && (
+                      <button 
+                        type="button"
+                        onClick={cancelEdit}
+                        className="flex-1 bg-gray-800 hover:bg-gray-700 p-3 rounded-xl font-bold text-sm transition-all"
+                      >
+                        Cancel
+                      </button>
+                    )}
+                    <button 
+                      type="submit"
+                      className="flex-[2] bg-white text-black hover:bg-gray-200 p-3 rounded-xl font-bold text-sm shadow-lg active:scale-95 transition-transform"
+                    >
+                      {editingId ? 'Save Changes' : 'Add to Collection'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            ) : (
+              /* PLAYLIST CONTENT SECTION (Library, Favorites, OR Personal) */
+              <div className="space-y-4">
+                
+                {/* TAB HEADER (Export Button & Item Count) */}
+                <div className="flex justify-between items-center bg-white/5 p-3 rounded-xl border border-white/5">
+                  <div>
+                    <h3 className="text-xs font-black uppercase tracking-widest text-gray-400">
+                      {displayList.isSearch 
+                        ? 'Search Results' 
+                        : (activeTab === 'favorites' ? 'Favorites' : activeTab === 'personal' ? 'Personal' : 'Library')}
+                    </h3>
+                    <p className="text-[10px] text-gray-500 font-medium">
+                      {displayList.isSearch 
+                        ? (displayList.personal.length + displayList.library.length)
+                        : displayList.data.length} items
+                    </p>
+                  </div>
+                  {!displayList.isSearch && displayList.data.length > 0 && (activeTab === 'favorites' || activeTab === 'personal') && (
+                    <button 
+                      onClick={() => exportPlaylist(activeTab)}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-[10px] font-black text-gray-400 hover:text-white transition-all border border-white/10 shadow-sm"
+                      title="Download as JSON"
+                    >
+                      <Download className="w-3 h-3" />
+                      EXPORT JSON
+                    </button>
+                  )}
+                </div>
+
+                {/* VIDEO LIST RENDERING */}
+                {displayList.isSearch ? (
+                  <>
+                    {displayList.personal.length > 0 && (
+                      <div className="space-y-3">
+                        <div className="text-[10px] font-black text-blue-500/50 uppercase tracking-widest px-2 pt-2">Personal Results</div>
+                        {displayList.personal.map(video => renderVideoItem(video))}
+                      </div>
+                    )}
+                    {displayList.library.length > 0 && (
+                      <div className="space-y-3">
+                        <div className="text-[10px] font-black text-gray-500 uppercase tracking-widest px-2 pt-2">Library Results</div>
+                        {displayList.library.map(video => renderVideoItem(video))}
+                      </div>
+                    )}
+                    {displayList.personal.length === 0 && displayList.library.length === 0 && (
+                      <div className="flex flex-col items-center justify-center p-12 opacity-30">
+                        <Bookmark className="w-12 h-12 mb-4" />
+                        <p className="text-sm">No matches found.</p>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  displayList.data.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-full text-center p-8 space-y-4 opacity-40">
+                      <Bookmark className="w-12 h-12" />
+                      <p className="text-sm">No reels here yet.</p>
+                    </div>
+                  ) : (
+                    displayList.data.map((video) => renderVideoItem(video))
+                  )
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </main>
 

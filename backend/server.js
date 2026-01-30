@@ -1,6 +1,11 @@
 const express = require("express");
 const cors = require("cors");
 const axios = require("axios");
+const { exec } = require("child_process");
+const { promisify } = require("util");
+const execPromise = promisify(exec);
+const fs = require("fs");
+const path = require("path");
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -15,12 +20,24 @@ app.get("/api/stream", async (req, res) => {
     return res.status(400).json({ error: "URL manquante" });
   }
 
-  // Clean the URL: Remove query parameters like ?igsh=...
-  const cleanUrl = videoUrl.split('?')[0];
+  // Clean the URL: Remove common tracking parameters but keep essential ones (like ?v= for YouTube)
+  let cleanUrl = videoUrl;
+  try {
+    const urlObj = new URL(videoUrl);
+    const trackingParams = ['igsh', 'utm_source', 'utm_medium', 'utm_campaign', 'si'];
+    trackingParams.forEach(p => urlObj.searchParams.delete(p));
+    cleanUrl = urlObj.toString();
+  } catch (e) {
+    // Fallback to minimal cleaning if URL parsing fails
+    cleanUrl = videoUrl.split('?')[0];
+  }
 
   try {
     console.log(`Fetching direct URL for: ${videoUrl}`);
     
+    let directMp4Url = null;
+
+    /* --- VERSION RapidAPI (Désactivée) ---
     // 1. Appeler l'API de RapidAPI pour obtenir le lien .mp4 réel
     const options = {
       method: 'GET',
@@ -36,8 +53,6 @@ app.get("/api/stream", async (req, res) => {
     const apiData = apiResponse.data;
     const responseData = apiData.data || apiData;
     
-    let directMp4Url = null;
-
     // 1. Try to find the video in the 'medias' array first (it's the most reliable source for this API)
     if (responseData.medias && Array.isArray(responseData.medias) && responseData.medias.length > 0) {
       // Find the first media that is a video
@@ -53,19 +68,50 @@ app.get("/api/stream", async (req, res) => {
          directMp4Url = responseData.url;
        }
     }
+    -------------------------------------- */
 
-    if (!directMp4Url || directMp4Url.includes('instagram.com/reel')) {
-      console.error("Structure de réponse API non reconnue ou lien invalide:", JSON.stringify(apiData, null, 2));
-      throw new Error("Lien MP4 direct non trouvé. L'API a renvoyé la page HTML au lieu de la vidéo.");
+    // --- VERSION Local yt-dlp ---
+    console.log(`Using yt-dlp to fetch direct URL for: ${cleanUrl}`);
+    const cookiesPath = path.join(__dirname, 'cookies.txt');
+    // Using format that prioritizes merged MP4 for browser compatibility
+    const formatSelection = '"best[ext=mp4]/best"';
+    let ytDlpCommand = `yt-dlp -f ${formatSelection} -g "${cleanUrl}"`;
+    
+    if (fs.existsSync(cookiesPath)) {
+      console.log("Using cookies.txt for yt-dlp");
+      ytDlpCommand = `yt-dlp --cookies "${cookiesPath}" -f ${formatSelection} -g "${cleanUrl}"`;
+    } else {
+      console.log("No cookies.txt found in backend folder. Running without cookies.");
+    }
+
+    try {
+      const { stdout, stderr } = await execPromise(ytDlpCommand);
+      if (stdout) {
+        const urls = stdout.trim().split('\n');
+        console.log(`yt-dlp returned ${urls.length} URL(s)`);
+        directMp4Url = urls[0]; // Usually the first one is the best/combined
+      }
+      if (stderr && !directMp4Url) {
+        console.error("yt-dlp stderr:", stderr);
+      }
+    } catch (ytErr) {
+      console.error("yt-dlp execution error:", ytErr.message);
+      throw new Error("Impossible de récupérer l'URL avec yt-dlp. Vérifie tes cookies ou l'URL.");
+    }
+
+    if (!directMp4Url) {
+      console.error("Lien direct non trouvé avec yt-dlp.");
+      throw new Error("Lien MP4 direct non trouvé via yt-dlp.");
     }
 
     console.log(`Direct URL found: ${directMp4Url.substring(0, 50)}...`);
     console.log(`Proxying stream with Range support...`);
 
     // 2. Proxy de stream avec support des "Ranges" (essentiel pour les vidéos)
+    const urlObj = new URL(videoUrl);
     const streamHeaders = {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Referer': 'https://www.instagram.com/'
+      'Referer': `${urlObj.protocol}//${urlObj.hostname}/`
     };
 
     if (req.headers.range) {
@@ -110,25 +156,37 @@ app.get("/api/stream", async (req, res) => {
       console.error('Error initiating video stream:', streamErr.message);
       throw streamErr;
     }
-
   } catch (error) {
     if (error.response) {
       console.error("API Error Response Data:", JSON.stringify(error.response.data, null, 2));
       console.error("API Error Status:", error.response.status);
     }
     console.error("Erreur Backend:", error.message);
+    
+    let userMessage = "L'URL est peut-etre invalide ou la vidéo est privée.";
+    if (videoUrl.includes('tiktok.com')) {
+      userMessage = "Impossible de récupérer cette vidéo TikTok. Veuillez vérifier le lien.";
+    } else if (videoUrl.includes('instagram.com')) {
+      userMessage = "Impossible de récupérer ce Reel Instagram. Le lien est peut-être expiré.";
+    }
+
     res.status(500).json({ 
-      error: "Impossible de récupérer le Reel", 
-      details: error.response ? error.response.data : error.message,
-      message: "Vérifie ta clé RapidAPI et tes crédits restants."
+      error: "Impossible de récupérer la vidéo", 
+      details: error.message,
+      message: userMessage
     });
   }
 });
 
 app.get("/health", (req, res) => {
-  res.json({ status: "ok", provider: "rapidapi" });
+  const cookiesExist = fs.existsSync(path.join(__dirname, 'cookies.txt'));
+  res.json({ 
+    status: "ok", 
+    provider: "yt-dlp", 
+    usingCookies: cookiesExist 
+  });
 });
 
 app.listen(PORT, () => {
-  console.log(`Serveur via RapidAPI sur le port ${PORT}`);
+  console.log(`Serveur via yt-dlp sur le port ${PORT}`);
 });

@@ -1,6 +1,15 @@
 # Utilise une image Node.js stable
 FROM node:18
 
+# Installe Python et yt-dlp (dépendances système)
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Installe yt-dlp via pip
+RUN pip3 install --no-cache-dir yt-dlp
+
 # Crée le dossier de l'app
 WORKDIR /usr/src/app
 
