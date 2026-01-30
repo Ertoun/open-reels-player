@@ -7,8 +7,8 @@ RUN apt-get update && apt-get install -y \
     python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
-# Installe yt-dlp via pip
-RUN pip3 install --no-cache-dir yt-dlp
+# Installe yt-dlp via pip en ignorant la restriction système
+RUN pip3 install --no-cache-dir --break-system-packages yt-dlp
 
 # Crée le dossier de l'app
 WORKDIR /usr/src/app
