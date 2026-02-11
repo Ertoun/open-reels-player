@@ -202,7 +202,6 @@ function App() {
       const personalMatches = customReels.filter(v => 
         v.title.toLowerCase().includes(q) || 
         (v.tags && v.tags.toLowerCase().includes(q)) ||
-        (q === 'volleyball' || q === 'volley') ||
         (q === 'youtube' && (v.url.includes('youtube.com') || v.url.includes('youtu.be')))
       );
 
@@ -211,7 +210,6 @@ function App() {
         
         return v.title.toLowerCase().includes(q) || 
           (v.tags && v.tags.toLowerCase().includes(q)) ||
-          (q === 'volleyball' || q === 'volley') ||
           (q === 'youtube' && (v.url.includes('youtube.com') || v.url.includes('youtu.be')))
       });
 
