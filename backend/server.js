@@ -1,3 +1,4 @@
+require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const axios = require("axios");
@@ -6,12 +7,43 @@ const { promisify } = require("util");
 const execPromise = promisify(exec);
 const fs = require("fs");
 const path = require("path");
+const mongoose = require("mongoose");
+const { v4: uuidv4 } = require("uuid");
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 
+// MongoDB Connection
+const MONGODB_URI = process.env.MONGODB_URI;
+
+mongoose
+  .connect(MONGODB_URI)
+  .then(() => console.log("Connecté à MongoDB Atlas"))
+  .catch((err) => console.error("Erreur de connexion MongoDB:", err));
+
+// Schemas
+const videoSchema = new mongoose.Schema({
+  id: { type: String, default: uuidv4 },
+  title: String,
+  url: String,
+  tags: String,
+  addedAt: { type: Date, default: Date.now },
+});
+
+const submissionSchema = new mongoose.Schema({
+  id: { type: String, default: uuidv4 },
+  title: String,
+  url: String,
+  tags: String,
+  submittedAt: { type: Date, default: Date.now },
+});
+
+const Video = mongoose.model("Video", videoSchema);
+const Submission = mongoose.model("Submission", submissionSchema);
+
 // Middlewares
 app.use(cors());
+app.use(express.json());
 
 app.get("/api/stream", async (req, res) => {
   const videoUrl = req.query.url;
@@ -20,7 +52,7 @@ app.get("/api/stream", async (req, res) => {
     return res.status(400).json({ error: "URL manquante" });
   }
 
-  // Clean the URL: Remove common tracking parameters but keep essential ones (like ?v= for YouTube)
+  // Clean the URL
   let cleanUrl = videoUrl;
   try {
     const urlObj = new URL(videoUrl);
@@ -34,73 +66,28 @@ app.get("/api/stream", async (req, res) => {
     trackingParams.forEach((p) => urlObj.searchParams.delete(p));
     cleanUrl = urlObj.toString();
   } catch (e) {
-    // Fallback to minimal cleaning if URL parsing fails
     cleanUrl = videoUrl.split("?")[0];
   }
 
   try {
     console.log(`Fetching direct URL for: ${videoUrl}`);
-
     let directMp4Url = null;
-
-    /* --- VERSION RapidAPI (Désactivée) ---
-    // 1. Appeler l'API de RapidAPI pour obtenir le lien .mp4 réel
-    const options = {
-      method: 'GET',
-      url: 'https://instagram-reels-downloader-api.p.rapidapi.com/download',
-      params: { url: cleanUrl },
-      headers: {
-        'X-RapidAPI-Key': process.env.RAPIDAPI_KEY, 
-        'X-RapidAPI-Host': 'instagram-reels-downloader-api.p.rapidapi.com'
-      }
-    };
-
-    const apiResponse = await axios.request(options);
-    const apiData = apiResponse.data;
-    const responseData = apiData.data || apiData;
-    
-    // 1. Try to find the video in the 'medias' array first (it's the most reliable source for this API)
-    if (responseData.medias && Array.isArray(responseData.medias) && responseData.medias.length > 0) {
-      // Find the first media that is a video
-      const videoMedia = responseData.medias.find(m => m.type === 'video') || responseData.medias[0];
-      directMp4Url = videoMedia.url;
-    }
-
-    // 2. Fallback to download_url or url BUT ONLY if it's not the original Instagram link
-    if (!directMp4Url || directMp4Url.includes('instagram.com/reels/') || directMp4Url.includes('instagram.com/reel/')) {
-       if (responseData.download_url && !responseData.download_url.includes('instagram.com/')) {
-         directMp4Url = responseData.download_url;
-       } else if (responseData.url && !responseData.url.includes('instagram.com/')) {
-         directMp4Url = responseData.url;
-       }
-    }
-    -------------------------------------- */
 
     // --- VERSION Local yt-dlp ---
     console.log(`Using yt-dlp to fetch direct URL for: ${cleanUrl}`);
     const cookiesPath = path.join(__dirname, "cookies.txt");
-    // Using format that prioritizes merged MP4 for browser compatibility
     const formatSelection = '"best[ext=mp4]/best"';
     let ytDlpCommand = `yt-dlp -f ${formatSelection} -g "${cleanUrl}"`;
 
     if (fs.existsSync(cookiesPath)) {
-      console.log("Using cookies.txt for yt-dlp");
       ytDlpCommand = `yt-dlp --cookies "${cookiesPath}" -f ${formatSelection} -g "${cleanUrl}"`;
-    } else {
-      console.log(
-        "No cookies.txt found in backend folder. Running without cookies.",
-      );
     }
 
     try {
-      const { stdout, stderr } = await execPromise(ytDlpCommand);
+      const { stdout } = await execPromise(ytDlpCommand);
       if (stdout) {
         const urls = stdout.trim().split("\n");
-        console.log(`yt-dlp returned ${urls.length} URL(s)`);
-        directMp4Url = urls[0]; // Usually the first one is the best/combined
-      }
-      if (stderr && !directMp4Url) {
-        console.error("yt-dlp stderr:", stderr);
+        directMp4Url = urls[0];
       }
     } catch (ytErr) {
       console.error("yt-dlp execution error:", ytErr.message);
@@ -110,14 +97,10 @@ app.get("/api/stream", async (req, res) => {
     }
 
     if (!directMp4Url) {
-      console.error("Lien direct non trouvé avec yt-dlp.");
       throw new Error("Lien MP4 direct non trouvé via yt-dlp.");
     }
 
-    console.log(`Direct URL found: ${directMp4Url.substring(0, 50)}...`);
-    console.log(`Proxying stream with Range support...`);
-
-    // 2. Proxy de stream avec support des "Ranges" (essentiel pour les vidéos)
+    // Proxy Stream
     const urlObj = new URL(videoUrl);
     const streamHeaders = {
       "User-Agent":
@@ -126,94 +109,43 @@ app.get("/api/stream", async (req, res) => {
     };
 
     if (req.headers.range) {
-      console.log(`Browser requested Range: ${req.headers.range}`);
       streamHeaders.range = req.headers.range;
     }
 
-    try {
-      const videoStream = await axios({
-        method: "get",
-        url: directMp4Url,
-        responseType: "stream",
-        headers: streamHeaders,
-        timeout: 10000,
-        validateStatus: false,
-      });
-
-      console.log(`Source Status: ${videoStream.status}`);
-      console.log(
-        `Source Headers:`,
-        JSON.stringify(videoStream.headers, null, 2),
-      );
-
-      res.status(videoStream.status);
-
-      const headersToForward = [
-        "content-type",
-        "content-length",
-        "content-range",
-        "accept-ranges",
-      ];
-
-      headersToForward.forEach((header) => {
-        if (videoStream.headers[header]) {
-          res.setHeader(header, videoStream.headers[header]);
-        }
-      });
-
-      videoStream.data.pipe(res);
-
-      videoStream.data.on("error", (err) => {
-        console.error("Stream error while piping:", err.message);
-      });
-    } catch (streamErr) {
-      console.error("Error initiating video stream:", streamErr.message);
-      throw streamErr;
-    }
-  } catch (error) {
-    if (error.response) {
-      console.error(
-        "API Error Response Data:",
-        JSON.stringify(error.response.data, null, 2),
-      );
-      console.error("API Error Status:", error.response.status);
-    }
-    console.error("Erreur Backend:", error.message);
-
-    let userMessage = "L'URL est peut-etre invalide ou la vidéo est privée.";
-    if (videoUrl.includes("tiktok.com")) {
-      userMessage =
-        "Impossible de récupérer cette vidéo TikTok. Veuillez vérifier le lien.";
-    } else if (videoUrl.includes("instagram.com")) {
-      userMessage =
-        "Impossible de récupérer ce Reel Instagram. Le lien est peut-être expiré.";
-    }
-
-    res.status(500).json({
-      error: "Impossible de récupérer la vidéo",
-      details: error.message,
-      message: userMessage,
+    const videoStream = await axios({
+      method: "get",
+      url: directMp4Url,
+      responseType: "stream",
+      headers: streamHeaders,
+      timeout: 15000,
+      validateStatus: false,
     });
+
+    res.status(videoStream.status);
+    const headersToForward = [
+      "content-type",
+      "content-length",
+      "content-range",
+      "accept-ranges",
+    ];
+
+    headersToForward.forEach((header) => {
+      if (videoStream.headers[header]) {
+        res.setHeader(header, videoStream.headers[header]);
+      }
+    });
+
+    videoStream.data.pipe(res);
+  } catch (error) {
+    console.error("Erreur Backend:", error.message);
+    let userMessage = "L'URL est peut-etre invalide ou la vidéo est privée.";
+    if (videoUrl.includes("instagram.com")) {
+      userMessage =
+        "Impossible de récupérer ce Reel Instagram. Le lien est peut-être expiré ou les cookies ont expiré.";
+    }
+    res.status(500).json({ error: "Impossible de récupérer la vidéo", message: userMessage });
   }
 });
-
-// --- Playlist Management ---
-
-const PLAYLISTS_FILE = path.join(__dirname, "data", "playlists.json");
-
-// Helper to read playlists
-const readPlaylists = () => {
-  if (!fs.existsSync(PLAYLISTS_FILE)) {
-    return [];
-  }
-  const data = fs.readFileSync(PLAYLISTS_FILE, "utf-8");
-  return JSON.parse(data);
-};
-
-// Helper to write playlists
-const writePlaylists = (data) => {
-  fs.writeFileSync(PLAYLISTS_FILE, JSON.stringify(data, null, 2), "utf-8");
-};
 
 // Auth Middleware
 const authenticate = (req, res, next) => {
@@ -222,11 +154,6 @@ const authenticate = (req, res, next) => {
     return res.status(401).json({ error: "Unauthorized" });
   }
   const token = authHeader.split(" ")[1];
-  // Simple "token" check - in real app use JWT. Here we just use the password as token for simplicity/demo
-  // or a simple base64 of it. Let's just expect "Azeroth-token" for now to keep it extremely simple
-  // or just check against the password directly if we treat it as an API key.
-
-  // Real-world: verifying a specific token.
   if (token === "Azeroth-Session-Token") {
     next();
   } else {
@@ -234,7 +161,7 @@ const authenticate = (req, res, next) => {
   }
 };
 
-app.post("/api/auth/login", express.json(), (req, res) => {
+app.post("/api/auth/login", (req, res) => {
   const { password } = req.body;
   if (password === "Azeroth") {
     res.json({ token: "Azeroth-Session-Token", success: true });
@@ -243,144 +170,109 @@ app.post("/api/auth/login", express.json(), (req, res) => {
   }
 });
 
-app.get("/api/playlists", (req, res) => {
+// --- Playlist Management (MongoDB) ---
+
+app.get("/api/playlists", async (req, res) => {
   try {
-    const playlists = readPlaylists();
-    res.json(playlists);
+    const videos = await Video.find().sort({ addedAt: -1 });
+    res.json(videos);
   } catch (err) {
     res.status(500).json({ error: "Failed to read playlists" });
   }
 });
 
-app.post("/api/playlists", express.json(), authenticate, (req, res) => {
+app.post("/api/playlists", authenticate, async (req, res) => {
   try {
     const newPlaylists = req.body;
     if (!Array.isArray(newPlaylists)) {
       return res.status(400).json({ error: "Invalid format" });
     }
-    writePlaylists(newPlaylists);
+    
+    // Pour simplifier cette implémentation (qui attend un tableau complet du frontend),
+    // on vide la collection et on réinsère tout. 
+    // Optimization: In a real app, use updates instead of clear+insert.
+    await Video.deleteMany({});
+    await Video.insertMany(newPlaylists);
+    
     res.json({ success: true, count: newPlaylists.length });
   } catch (err) {
+    console.error("Save error:", err);
     res.status(500).json({ error: "Failed to save playlists" });
   }
 });
 
-// End Playlist Management
+// --- Submission Management (MongoDB) ---
 
-// --- Submission Management ---
-const PENDING_FILE = path.join(__dirname, "data", "pending.json");
-const { v4: uuidv4 } = require('uuid');
-
-const readPending = () => {
-  if (!fs.existsSync(PENDING_FILE)) return [];
+app.post("/api/submissions", async (req, res) => {
   try {
-    const data = fs.readFileSync(PENDING_FILE, "utf-8");
-    return JSON.parse(data);
-  } catch (e) { return []; }
-};
+    const { title, url, tags } = req.body;
+    if (!title || !url) return res.status(400).json({ error: "Missing fields" });
 
-const writePending = (data) => {
-  fs.writeFileSync(PENDING_FILE, JSON.stringify(data, null, 2), "utf-8");
-};
+    const exists = await Submission.findOne({ url });
+    if (exists) return res.status(409).json({ error: "Already pending" });
 
-// 1. Submit a video (Public)
-app.post("/api/submissions", express.json(), (req, res) => {
-    try {
-        const { title, url, tags } = req.body;
-        if (!title || !url) return res.status(400).json({ error: "Missing fields" });
+    const newSubmission = new Submission({
+      id: uuidv4(),
+      title,
+      url,
+      tags: tags || "",
+    });
 
-        const pending = readPending();
-        // Simple duplicate check
-         if (pending.some(v => v.url === url)) {
-            return res.status(409).json({ error: "Already pending" });
-        }
-        
-        const newSubmission = {
-            id: uuidv4(),
-            title,
-            url,
-            tags: tags || "",
-            submittedAt: new Date().toISOString()
-        };
-
-        pending.push(newSubmission);
-        writePending(pending);
-
-        console.log(`New submission: ${title}`);
-        res.json({ success: true, message: "Submission received" });
-    } catch (err) {
-        console.error("Submission error:", err);
-        res.status(500).json({ error: "Submission failed" });
-    }
+    await newSubmission.save();
+    res.json({ success: true, message: "Submission received" });
+  } catch (err) {
+    res.status(500).json({ error: "Submission failed" });
+  }
 });
 
-// 2. List submissions (Admin only)
-app.get("/api/submissions", authenticate, (req, res) => {
-    try {
-        const pending = readPending();
-        res.json(pending);
-    } catch (err) {
-        res.status(500).json({ error: "Failed to read submissions" });
-    }
+app.get("/api/submissions", authenticate, async (req, res) => {
+  try {
+    const pending = await Submission.find().sort({ submittedAt: -1 });
+    res.json(pending);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to read submissions" });
+  }
 });
 
-// 3. Approve submission (Admin only)
-app.post("/api/submissions/approve", express.json(), authenticate, (req, res) => {
-    try {
-        const { id } = req.body;
-        const pending = readPending();
-        const submissionIndex = pending.findIndex(v => v.id === id);
+app.post("/api/submissions/approve", authenticate, async (req, res) => {
+  try {
+    const { id } = req.body;
+    const submission = await Submission.findOne({ id });
+    if (!submission) return res.status(404).json({ error: "Submission not found" });
 
-        if (submissionIndex === -1) return res.status(404).json({ error: "Submission not found" });
+    // Add to main Video collection
+    const newVideo = new Video({
+      id: submission.id,
+      title: submission.title,
+      url: submission.url,
+      tags: submission.tags,
+    });
+    await newVideo.save();
 
-        const submission = pending[submissionIndex];
-        
-        // Add to main playlists
-        const playlists = readPlaylists();
-        // Avoid duplicate ID collision if any, though uuid is safe. 
-        // We might want to keep the ID or generate a new simple one? 
-        // Let's keep the UUID to ensure uniqueness.
-        playlists.push({
-            id: submission.id,
-            title: submission.title,
-            url: submission.url,
-            tags: submission.tags
-        });
-        writePlaylists(playlists);
+    // Remove from pending
+    await Submission.deleteOne({ id });
 
-        // Remove from pending
-        pending.splice(submissionIndex, 1);
-        writePending(pending);
-
-        res.json({ success: true });
-    } catch (err) {
-        res.status(500).json({ error: "Approval failed" });
-    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "Approval failed" });
+  }
 });
 
-// 4. Reject submission (Admin only)
-app.delete("/api/submissions/:id", authenticate, (req, res) => {
-    try {
-        const { id } = req.params;
-        let pending = readPending();
-        const initialLength = pending.length;
-        pending = pending.filter(v => v.id !== id);
-
-        if (pending.length === initialLength) return res.status(404).json({ error: "Submission not found" });
-
-        writePending(pending);
-        res.json({ success: true });
-    } catch (err) {
-        res.status(500).json({ error: "Rejection failed" });
-    }
+app.delete("/api/submissions/:id", authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    await Submission.deleteOne({ id });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "Rejection failed" });
+  }
 });
-
-// End Submission Management
 
 app.get("/health", (req, res) => {
   const cookiesExist = fs.existsSync(path.join(__dirname, "cookies.txt"));
   res.json({
     status: "ok",
+    database: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
     provider: "yt-dlp",
     usingCookies: cookiesExist,
   });
