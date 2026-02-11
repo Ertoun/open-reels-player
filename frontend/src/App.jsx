@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, ExternalLink, Loader2, Info, Plus, Library, User, Heart, Bookmark, Trash2, Edit3, X, Download, Lock } from 'lucide-react';
+import { Play, ExternalLink, Loader2, Info, Plus, Library, User, Heart, Bookmark, Trash2, Edit3, X, Download, Lock, Send } from 'lucide-react';
 import Admin from './Admin';
 
 const API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
@@ -151,30 +151,31 @@ function App() {
     if (currentVideo?.id === videoId) setCurrentVideo(null);
   };
 
-  const exportPlaylist = (type) => {
-    let data = [];
-    let filename = 'playlist.json';
-    
-    if (type === 'favorites') {
-      const allReels = [...initialPlaylists, ...customReels];
-      data = allReels.filter(v => favorites.includes(v.id));
-      filename = 'favorites.json';
-    } else if (type === 'personal') {
-      data = customReels;
-      filename = 'personal.json';
+  const submitToLibrary = async () => {
+    if (!window.confirm(`Soumettre ${customReels.length} vidéos à la bibliothèque publique? Airtan les approuvera.`)) return;
+
+    let submittedCount = 0;
+    let errors = 0;
+
+    for (const video of customReels) {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/submissions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: video.title,
+            url: video.url,
+            tags: video.tags
+          })
+        });
+        if (res.ok) submittedCount++;
+        else errors++;
+      } catch (e) {
+        errors++;
+      }
     }
-    
-    if (data.length === 0) return;
-    
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+
+    alert(`Soumission terminée!\nEnvoyées: ${submittedCount}\nÉchouées/En attente: ${errors}`);
   };
 
   const onPlayerLoaded = () => setLoading(false);
@@ -344,8 +345,8 @@ function App() {
                 <Play className="w-12 h-12 text-white opacity-10" />
               </div>
               <div>
-                <p className="text-xl font-bold text-gray-300">Ready to watch?</p>
-                <p className="text-sm text-gray-600 mt-2">Select a reel from the sidebar to stream it anonymously.</p>
+                <p className="text-xl font-bold text-gray-300">Prêt à regarder ?</p>
+                <p className="text-sm text-gray-600 mt-2">Sélectionne une vidéo</p>
               </div>
             </div>
           ) : (
@@ -357,9 +358,9 @@ function App() {
                     <Loader2 className="w-14 h-14 text-white animate-spin relative" />
                   </div>
                   <div className="mt-8 text-center space-y-2">
-                    <p className="text-lg font-bold tracking-tight">ENCRYPTED STREAM</p>
+                    <p className="text-lg font-bold tracking-tight">CHARGEMENT...</p>
                     <p className="text-xs text-gray-500 italic px-8 max-w-[280px]">
-                      Please wait... Fetching direct video buffer from source via yt-dlp...
+                      Veuillez patienter... Récupération du flux vidéo
                     </p>
                   </div>
                 </div>
@@ -457,7 +458,7 @@ function App() {
 
             {/* Tag Cloud */}
             <div className="flex flex-wrap gap-1.5 px-0.5">
-              {['volley', 'exo', 'cat', 'autre'].map(tag => (
+              {['volley', 'exo', 'passe', 'service', 'cat'].map(tag => (
                 <button
                   key={tag}
                   onClick={() => setSearchQuery(tag)}
@@ -596,14 +597,14 @@ function App() {
                         : displayList.data.length} items
                     </p>
                   </div>
-                  {!displayList.isSearch && displayList.data.length > 0 && (activeTab === 'favorites' || activeTab === 'personal') && (
+                  {!displayList.isSearch && displayList.data.length > 0 && activeTab === 'personal' && (
                     <button 
-                      onClick={() => exportPlaylist(activeTab)}
-                      className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-[10px] font-black text-gray-400 hover:text-white transition-all border border-white/10 shadow-sm"
-                      title="Download as JSON"
+                      onClick={submitToLibrary}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 bg-red-500/10 hover:bg-red-500/20 rounded-lg text-[10px] font-black text-red-500 transition-all border border-red-500/20 shadow-sm"
+                      title="Submit all personal videos to public library"
                     >
-                      <Download className="w-3 h-3" />
-                      EXPORT JSON
+                      <Send className="w-3 h-3" />
+                      Soumettre à la bibliothèque
                     </button>
                   )}
                 </div>
@@ -626,7 +627,7 @@ function App() {
                     {displayList.personal.length === 0 && displayList.library.length === 0 && (
                       <div className="flex flex-col items-center justify-center p-12 opacity-30">
                         <Bookmark className="w-12 h-12 mb-4" />
-                        <p className="text-sm">No matches found.</p>
+                        <p className="text-sm">Pas de résultats.</p>
                       </div>
                     )}
                   </>
@@ -634,7 +635,7 @@ function App() {
                   displayList.data.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full text-center p-8 space-y-4 opacity-40">
                       <Bookmark className="w-12 h-12" />
-                      <p className="text-sm">No reels here yet.</p>
+                      <p className="text-sm">Aucun vidéo ici.</p>
                     </div>
                   ) : (
                     displayList.data.map((video) => renderVideoItem(video))
@@ -655,11 +656,11 @@ function App() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-12">
             <p className="text-[10px] md:text-xs text-gray-500 leading-relaxed uppercase tracking-wider">
               <strong className="text-gray-400 block mb-1">FRN / DISCLAIMER</strong>
-              Ce lecteur est un outil open source de démonstration. Aucune donnée n'est hébergée. Les flux sont routés directement.
+              Ce lecteur est un outil open source de démonstration. Aucune donnée n'est hébergée. Les flux sont routés directement. <br /> © 2026 Open Reels Player by Bitamine. Tous droits réservés.
             </p>
             <p className="text-[10px] md:text-xs text-gray-500 leading-relaxed uppercase tracking-wider">
               <strong className="text-gray-400 block mb-1">ENG / DISCLAIMER</strong>
-              This player is an open-source demo tool. No data is hosted on our infrastructure. Streams are proxied direct from source.
+              This player is an open-source demo tool. No data is hosted on our infrastructure. Streams are proxied direct from source. <br /> © 2026 Open Reels Player by Bitamine. All rights reserved.
             </p>
           </div>
         </div>

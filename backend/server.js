@@ -267,6 +267,116 @@ app.post("/api/playlists", express.json(), authenticate, (req, res) => {
 
 // End Playlist Management
 
+// --- Submission Management ---
+const PENDING_FILE = path.join(__dirname, "data", "pending.json");
+const { v4: uuidv4 } = require('uuid');
+
+const readPending = () => {
+  if (!fs.existsSync(PENDING_FILE)) return [];
+  try {
+    const data = fs.readFileSync(PENDING_FILE, "utf-8");
+    return JSON.parse(data);
+  } catch (e) { return []; }
+};
+
+const writePending = (data) => {
+  fs.writeFileSync(PENDING_FILE, JSON.stringify(data, null, 2), "utf-8");
+};
+
+// 1. Submit a video (Public)
+app.post("/api/submissions", express.json(), (req, res) => {
+    try {
+        const { title, url, tags } = req.body;
+        if (!title || !url) return res.status(400).json({ error: "Missing fields" });
+
+        const pending = readPending();
+        // Simple duplicate check
+         if (pending.some(v => v.url === url)) {
+            return res.status(409).json({ error: "Already pending" });
+        }
+        
+        const newSubmission = {
+            id: uuidv4(),
+            title,
+            url,
+            tags: tags || "",
+            submittedAt: new Date().toISOString()
+        };
+
+        pending.push(newSubmission);
+        writePending(pending);
+
+        console.log(`New submission: ${title}`);
+        res.json({ success: true, message: "Submission received" });
+    } catch (err) {
+        console.error("Submission error:", err);
+        res.status(500).json({ error: "Submission failed" });
+    }
+});
+
+// 2. List submissions (Admin only)
+app.get("/api/submissions", authenticate, (req, res) => {
+    try {
+        const pending = readPending();
+        res.json(pending);
+    } catch (err) {
+        res.status(500).json({ error: "Failed to read submissions" });
+    }
+});
+
+// 3. Approve submission (Admin only)
+app.post("/api/submissions/approve", express.json(), authenticate, (req, res) => {
+    try {
+        const { id } = req.body;
+        const pending = readPending();
+        const submissionIndex = pending.findIndex(v => v.id === id);
+
+        if (submissionIndex === -1) return res.status(404).json({ error: "Submission not found" });
+
+        const submission = pending[submissionIndex];
+        
+        // Add to main playlists
+        const playlists = readPlaylists();
+        // Avoid duplicate ID collision if any, though uuid is safe. 
+        // We might want to keep the ID or generate a new simple one? 
+        // Let's keep the UUID to ensure uniqueness.
+        playlists.push({
+            id: submission.id,
+            title: submission.title,
+            url: submission.url,
+            tags: submission.tags
+        });
+        writePlaylists(playlists);
+
+        // Remove from pending
+        pending.splice(submissionIndex, 1);
+        writePending(pending);
+
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: "Approval failed" });
+    }
+});
+
+// 4. Reject submission (Admin only)
+app.delete("/api/submissions/:id", authenticate, (req, res) => {
+    try {
+        const { id } = req.params;
+        let pending = readPending();
+        const initialLength = pending.length;
+        pending = pending.filter(v => v.id !== id);
+
+        if (pending.length === initialLength) return res.status(404).json({ error: "Submission not found" });
+
+        writePending(pending);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: "Rejection failed" });
+    }
+});
+
+// End Submission Management
+
 app.get("/health", (req, res) => {
   const cookiesExist = fs.existsSync(path.join(__dirname, "cookies.txt"));
   res.json({
