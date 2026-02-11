@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, ExternalLink, Loader2, Info, Plus, Library, User, Heart, Bookmark, Trash2, Edit3, X, Download } from 'lucide-react';
-import initialPlaylists from './playlists.json';
+import { Play, ExternalLink, Loader2, Info, Plus, Library, User, Heart, Bookmark, Trash2, Edit3, X, Download, Lock } from 'lucide-react';
+import Admin from './Admin';
 
 const API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
   ? 'http://localhost:10000'
   : 'https://open-reels-player.onrender.com';
 
 function App() {
+  const [isAdminMode, setIsAdminMode] = useState(window.location.pathname === '/admin' || window.location.search.includes('admin=true'));
+  const [initialPlaylists, setInitialPlaylists] = useState([]);
   const [currentVideo, setCurrentVideo] = useState(null);
   const [streamUrl, setStreamUrl] = useState('');
   const [loading, setLoading] = useState(false);
@@ -34,6 +36,14 @@ function App() {
   const [formError, setFormError] = useState('');
   const [editingId, setEditingId] = useState(null);
   const [showFooter, setShowFooter] = useState(false);
+
+  // Fetch initial playlists from backend
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/playlists`)
+      .then(res => res.json())
+      .then(data => setInitialPlaylists(data))
+      .catch(err => console.error("Failed to fetch playlists:", err));
+  }, []);
 
   // Persist data
   useEffect(() => {
@@ -279,6 +289,10 @@ function App() {
     </button>
   );
 
+  if (isAdminMode) {
+    return <Admin apiBaseUrl={API_BASE_URL} onBack={() => setIsAdminMode(false)} />;
+  }
+
   return (
     <div className="min-h-screen bg-[#0f0f0f] text-white flex flex-col font-sans">
       {/* Header */}
@@ -292,6 +306,13 @@ function App() {
           </h1>
         </div>
         <div className="flex items-center gap-2">
+          <button
+              onClick={() => setIsAdminMode(true)}
+              className="p-2 md:p-2.5 rounded-xl text-gray-500 hover:text-white transition-all hover:bg-white/10"
+              title="Admin Login"
+            >
+            <Lock className="w-4.5 h-4.5 md:w-5 md:h-5" />
+          </button>
           {currentVideo && (
             <button 
               onClick={() => {

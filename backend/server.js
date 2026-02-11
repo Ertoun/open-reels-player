@@ -24,17 +24,23 @@ app.get("/api/stream", async (req, res) => {
   let cleanUrl = videoUrl;
   try {
     const urlObj = new URL(videoUrl);
-    const trackingParams = ['igsh', 'utm_source', 'utm_medium', 'utm_campaign', 'si'];
-    trackingParams.forEach(p => urlObj.searchParams.delete(p));
+    const trackingParams = [
+      "igsh",
+      "utm_source",
+      "utm_medium",
+      "utm_campaign",
+      "si",
+    ];
+    trackingParams.forEach((p) => urlObj.searchParams.delete(p));
     cleanUrl = urlObj.toString();
   } catch (e) {
     // Fallback to minimal cleaning if URL parsing fails
-    cleanUrl = videoUrl.split('?')[0];
+    cleanUrl = videoUrl.split("?")[0];
   }
 
   try {
     console.log(`Fetching direct URL for: ${videoUrl}`);
-    
+
     let directMp4Url = null;
 
     /* --- VERSION RapidAPI (Désactivée) ---
@@ -72,22 +78,24 @@ app.get("/api/stream", async (req, res) => {
 
     // --- VERSION Local yt-dlp ---
     console.log(`Using yt-dlp to fetch direct URL for: ${cleanUrl}`);
-    const cookiesPath = path.join(__dirname, 'cookies.txt');
+    const cookiesPath = path.join(__dirname, "cookies.txt");
     // Using format that prioritizes merged MP4 for browser compatibility
     const formatSelection = '"best[ext=mp4]/best"';
     let ytDlpCommand = `yt-dlp -f ${formatSelection} -g "${cleanUrl}"`;
-    
+
     if (fs.existsSync(cookiesPath)) {
       console.log("Using cookies.txt for yt-dlp");
       ytDlpCommand = `yt-dlp --cookies "${cookiesPath}" -f ${formatSelection} -g "${cleanUrl}"`;
     } else {
-      console.log("No cookies.txt found in backend folder. Running without cookies.");
+      console.log(
+        "No cookies.txt found in backend folder. Running without cookies.",
+      );
     }
 
     try {
       const { stdout, stderr } = await execPromise(ytDlpCommand);
       if (stdout) {
-        const urls = stdout.trim().split('\n');
+        const urls = stdout.trim().split("\n");
         console.log(`yt-dlp returned ${urls.length} URL(s)`);
         directMp4Url = urls[0]; // Usually the first one is the best/combined
       }
@@ -96,7 +104,9 @@ app.get("/api/stream", async (req, res) => {
       }
     } catch (ytErr) {
       console.error("yt-dlp execution error:", ytErr.message);
-      throw new Error("Impossible de récupérer l'URL avec yt-dlp. Vérifie tes cookies ou l'URL.");
+      throw new Error(
+        "Impossible de récupérer l'URL avec yt-dlp. Vérifie tes cookies ou l'URL.",
+      );
     }
 
     if (!directMp4Url) {
@@ -110,8 +120,9 @@ app.get("/api/stream", async (req, res) => {
     // 2. Proxy de stream avec support des "Ranges" (essentiel pour les vidéos)
     const urlObj = new URL(videoUrl);
     const streamHeaders = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Referer': `${urlObj.protocol}//${urlObj.hostname}/`
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      Referer: `${urlObj.protocol}//${urlObj.hostname}/`,
     };
 
     if (req.headers.range) {
@@ -121,27 +132,30 @@ app.get("/api/stream", async (req, res) => {
 
     try {
       const videoStream = await axios({
-        method: 'get',
+        method: "get",
         url: directMp4Url,
-        responseType: 'stream',
+        responseType: "stream",
         headers: streamHeaders,
         timeout: 10000,
-        validateStatus: false
+        validateStatus: false,
       });
 
       console.log(`Source Status: ${videoStream.status}`);
-      console.log(`Source Headers:`, JSON.stringify(videoStream.headers, null, 2));
+      console.log(
+        `Source Headers:`,
+        JSON.stringify(videoStream.headers, null, 2),
+      );
 
       res.status(videoStream.status);
-      
+
       const headersToForward = [
-        'content-type',
-        'content-length',
-        'content-range',
-        'accept-ranges',
+        "content-type",
+        "content-length",
+        "content-range",
+        "accept-ranges",
       ];
 
-      headersToForward.forEach(header => {
+      headersToForward.forEach((header) => {
         if (videoStream.headers[header]) {
           res.setHeader(header, videoStream.headers[header]);
         }
@@ -149,41 +163,116 @@ app.get("/api/stream", async (req, res) => {
 
       videoStream.data.pipe(res);
 
-      videoStream.data.on('error', (err) => {
-        console.error('Stream error while piping:', err.message);
+      videoStream.data.on("error", (err) => {
+        console.error("Stream error while piping:", err.message);
       });
     } catch (streamErr) {
-      console.error('Error initiating video stream:', streamErr.message);
+      console.error("Error initiating video stream:", streamErr.message);
       throw streamErr;
     }
   } catch (error) {
     if (error.response) {
-      console.error("API Error Response Data:", JSON.stringify(error.response.data, null, 2));
+      console.error(
+        "API Error Response Data:",
+        JSON.stringify(error.response.data, null, 2),
+      );
       console.error("API Error Status:", error.response.status);
     }
     console.error("Erreur Backend:", error.message);
-    
+
     let userMessage = "L'URL est peut-etre invalide ou la vidéo est privée.";
-    if (videoUrl.includes('tiktok.com')) {
-      userMessage = "Impossible de récupérer cette vidéo TikTok. Veuillez vérifier le lien.";
-    } else if (videoUrl.includes('instagram.com')) {
-      userMessage = "Impossible de récupérer ce Reel Instagram. Le lien est peut-être expiré.";
+    if (videoUrl.includes("tiktok.com")) {
+      userMessage =
+        "Impossible de récupérer cette vidéo TikTok. Veuillez vérifier le lien.";
+    } else if (videoUrl.includes("instagram.com")) {
+      userMessage =
+        "Impossible de récupérer ce Reel Instagram. Le lien est peut-être expiré.";
     }
 
-    res.status(500).json({ 
-      error: "Impossible de récupérer la vidéo", 
+    res.status(500).json({
+      error: "Impossible de récupérer la vidéo",
       details: error.message,
-      message: userMessage
+      message: userMessage,
     });
   }
 });
 
+// --- Playlist Management ---
+
+const PLAYLISTS_FILE = path.join(__dirname, "data", "playlists.json");
+
+// Helper to read playlists
+const readPlaylists = () => {
+  if (!fs.existsSync(PLAYLISTS_FILE)) {
+    return [];
+  }
+  const data = fs.readFileSync(PLAYLISTS_FILE, "utf-8");
+  return JSON.parse(data);
+};
+
+// Helper to write playlists
+const writePlaylists = (data) => {
+  fs.writeFileSync(PLAYLISTS_FILE, JSON.stringify(data, null, 2), "utf-8");
+};
+
+// Auth Middleware
+const authenticate = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  const token = authHeader.split(" ")[1];
+  // Simple "token" check - in real app use JWT. Here we just use the password as token for simplicity/demo
+  // or a simple base64 of it. Let's just expect "Azeroth-token" for now to keep it extremely simple
+  // or just check against the password directly if we treat it as an API key.
+
+  // Real-world: verifying a specific token.
+  if (token === "Azeroth-Session-Token") {
+    next();
+  } else {
+    res.status(403).json({ error: "Forbidden" });
+  }
+};
+
+app.post("/api/auth/login", express.json(), (req, res) => {
+  const { password } = req.body;
+  if (password === "Azeroth") {
+    res.json({ token: "Azeroth-Session-Token", success: true });
+  } else {
+    res.status(401).json({ error: "Invalid password" });
+  }
+});
+
+app.get("/api/playlists", (req, res) => {
+  try {
+    const playlists = readPlaylists();
+    res.json(playlists);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to read playlists" });
+  }
+});
+
+app.post("/api/playlists", express.json(), authenticate, (req, res) => {
+  try {
+    const newPlaylists = req.body;
+    if (!Array.isArray(newPlaylists)) {
+      return res.status(400).json({ error: "Invalid format" });
+    }
+    writePlaylists(newPlaylists);
+    res.json({ success: true, count: newPlaylists.length });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to save playlists" });
+  }
+});
+
+// End Playlist Management
+
 app.get("/health", (req, res) => {
-  const cookiesExist = fs.existsSync(path.join(__dirname, 'cookies.txt'));
-  res.json({ 
-    status: "ok", 
-    provider: "yt-dlp", 
-    usingCookies: cookiesExist 
+  const cookiesExist = fs.existsSync(path.join(__dirname, "cookies.txt"));
+  res.json({
+    status: "ok",
+    provider: "yt-dlp",
+    usingCookies: cookiesExist,
   });
 });
 
